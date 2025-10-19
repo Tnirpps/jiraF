@@ -1,0 +1,29 @@
+Copyright (c) 2025 Tkachenko Egor Yurievich  
+All Rights Reserved.
+
+1. Definitions  
+   “Software” means the source code, object code, documentation and any other materials provided in this repository.  
+   “You” (or “Licensee”) means any person or entity that accesses or uses the Software.
+
+2. Grant of License  
+   Subject to the terms below, the copyright holder grants You a personal, non-exclusive, non-transferable, non-sublicensable, royalty-free license to use (i.e., to execute and run) the Software in its unmodified form, solely for Your internal purposes.
+
+3. Prohibited Actions  
+   Without the prior express written consent of Tkachenko Egor Yurievich, You may not:  
+   a) copy (beyond the one copy needed for use), modify, adapt, translate, merge, or create derivative works of the Software;  
+   b) reverse engineer, decompile, disassemble or otherwise attempt to discover the source code;  
+   c) distribute, sublicense, rent, lease, lend or transfer the Software in whole or in part;  
+   d) remove or alter any copyright, trademark, or other proprietary notices.
+
+4. Termination  
+   This license is effective until terminated. It will terminate automatically upon any breach of these terms. Upon termination You must immediately cease use of the Software and destroy all copies.
+
+5. Ownership  
+   The Software is owned and copyrighted by Tkachenko Egor Yurievich. All rights not expressly granted herein are reserved.
+
+6. Disclaimer of Warranty  
+   THE SOFTWARE IS PROVIDED “AS IS” WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,  
+   INCLUDING WITHOUT LIMITATION THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT.
+
+7. Limitation of Liability  
+   IN NO EVENT SHALL TKACHENKO EGOR YURIEVICH BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF OR IN CONNECTION WITH THE SOFTWARE.
