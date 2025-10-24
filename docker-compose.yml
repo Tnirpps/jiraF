@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram-bot
+    volumes:
+      - ./.env:/app/.env
+    restart: unless-stopped
+    # Ensures the container keeps running in the background
+    tty: true
