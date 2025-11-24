@@ -1,6 +1,24 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:14
+    container_name: jiraf-postgres
+    environment:
+      POSTGRES_USER: jiraf_user
+      POSTGRES_PASSWORD: jiraf_password
+      POSTGRES_DB: jiraf_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./internal/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jiraf_user -d jiraf_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   telegram-bot:
     build:
       context: .
@@ -8,6 +26,12 @@ services:
     container_name: telegram-bot
     volumes:
       - ./.env:/app/.env
+      - ./internal/db/schema.sql:/app/internal/db/schema.sql
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
-    # Ensures the container keeps running in the background
     tty: true
+
+volumes:
+  postgres_data:

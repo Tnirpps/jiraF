@@ -26,15 +26,14 @@ func (c *StartCommand) Description() string {
 	return "Start interacting with the bot"
 }
 
-// Execute handles the command execution
 func (c *StartCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig {
-	welcomeText := "🤖 *Welcome to the Todoist Assistant Bot!* 🤖\n\n" +
-		"I can help you create and manage tasks in Todoist directly from this chat.\n\n" +
-		"Here are some things you can do:\n" +
-		"• Use `/create Task name` to create a new task\n" +
-		"• Use `/list tasks` to see your tasks\n" +
-		"• Use `/list projects` to see your projects\n" +
-		"• Use `/complete task_id` to mark a task as complete\n\n" +
+	welcomeText := "🤖 *Welcome to the JiraF Bot!* 🤖\n\n" +
+		"I help collect discussions and turn them into Todoist tasks.\n\n" +
+		"Workflow:\n" +
+		"1. First set your project with `/set_project <id or URL>`\n" +
+		"2. Start a discussion with `/start_discussion`\n" +
+		"3. Send messages that will be collected as context\n" +
+		"4. Create a task with `/create_task` or cancel with `/cancel`\n\n" +
 		"Type `/help` to see all available commands."
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, welcomeText)
@@ -64,9 +63,16 @@ func (c *HelpCommand) Description() string {
 	return "Show available commands"
 }
 
-// Execute handles the command execution
 func (c *HelpCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig {
-	helpText := c.registry.GenerateHelpText()
+	helpText := "🤖 *JiraF Bot Commands* 🤖\n\n"
+
+	helpText += "*Discussion Workflow:*\n"
+	helpText += "• `/set_project <id|url>` - Set Todoist project for this chat\n"
+	helpText += "• `/start_discussion` - Start collecting messages for task creation\n"
+	helpText += "• `/cancel` - Cancel current discussion\n"
+	helpText += "• `/create_task` - Create task from discussion context\n\n"
+
+	helpText += "Type `/help` anytime to see this list again."
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, helpText)
 	msg.ParseMode = "Markdown"

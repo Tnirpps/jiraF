@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"log"
 	"sync"
 
@@ -9,16 +10,15 @@ import (
 	"github.com/user/telegram-bot/internal/todoist"
 )
 
-// Bot represents the Telegram bot
 type Bot struct {
 	api             *tgbotapi.BotAPI
 	commandRegistry *commands.Registry
+	dbManager       commands.DBManager
 	wg              sync.WaitGroup
 	stopCh          chan struct{}
 }
 
-// New creates a new Bot instance
-func New(telegramToken string, todoistToken string) (*Bot, error) {
+func New(telegramToken string, todoistToken string, dbManager commands.DBManager) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(telegramToken)
 	if err != nil {
 		return nil, err
@@ -59,9 +59,22 @@ func New(telegramToken string, todoistToken string) (*Bot, error) {
 	deleteConfirmCmd := commands.NewDeleteConfirmCommand(todoistClient)
 	registry.Register(deleteConfirmCmd)
 
+	// Register discussion flow commands
+	setProjectCmd := commands.NewSetProjectCommand(todoistClient, dbManager)
+	registry.Register(setProjectCmd)
+
+	startDiscussionCmd := commands.NewStartDiscussionCommand(dbManager)
+	registry.Register(startDiscussionCmd)
+
+	cancelCmd := commands.NewCancelCommand(dbManager)
+	registry.Register(cancelCmd)
+
+	// Note: create_task command will be implemented in the future
+
 	return &Bot{
 		api:             api,
 		commandRegistry: registry,
+		dbManager:       dbManager,
 		stopCh:          make(chan struct{}),
 	}, nil
 }
@@ -116,10 +129,29 @@ func (b *Bot) handleUpdate(update tgbotapi.Update) {
 func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	log.Printf("[%s] %s", message.From.UserName, message.Text)
 
+	// Only process text messages
+	if message.Text != "" {
+		ctx := context.Background()
+
+		// Check for active session and save text messages
+		hasActive, err := b.dbManager.HasActiveSession(ctx, message.Chat.ID)
+		if err == nil && hasActive && !message.IsCommand() {
+			// Save message to database if there's an active session
+			err := b.dbManager.SaveMessage(
+				ctx,
+				message.Chat.ID,
+				message.MessageID,
+				int64(message.From.ID),
+				message.From.UserName,
+				message.Text,
+			)
+			if err != nil {
+				log.Printf("Error saving message: %v", err)
+			}
+		}
+	}
+
 	if !message.IsCommand() {
-		// Send generic help message for non-commands
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Hello! I'm a Todoist assistant bot. Use /help to see available commands.")
-		b.api.Send(msg)
 		return
 	}
 
