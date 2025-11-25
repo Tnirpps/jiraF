@@ -23,8 +23,5 @@ WORKDIR /app
 # Copy the binary from the builder stage
 COPY --from=builder /telegram-bot .
 
-# Copy .env file (if exists - will be overridden by volume mount)
-COPY .env* ./
-
 # Run the binary
 CMD ["./telegram-bot"]

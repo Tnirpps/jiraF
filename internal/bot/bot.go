@@ -3,9 +3,11 @@ package bot
 import (
 	"context"
 	"log"
+	"os"
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/commands"
 	"github.com/user/telegram-bot/internal/todoist"
 )
@@ -26,6 +28,9 @@ func New(telegramToken string, todoistToken string, dbManager commands.DBManager
 
 	// Create Todoist client
 	todoistClient := todoist.NewClient(todoistToken)
+
+	// Create AI client
+	aiClient := ai.NewClient(os.Getenv("AI_API_TOKEN"))
 
 	// Initialize command registry
 	registry := commands.NewRegistry()
@@ -69,7 +74,13 @@ func New(telegramToken string, todoistToken string, dbManager commands.DBManager
 	cancelCmd := commands.NewCancelCommand(dbManager)
 	registry.Register(cancelCmd)
 
-	// Note: create_task command will be implemented in the future
+	// AI analysis command
+	analyzeCmd := commands.NewAnalyzeCommand(todoistClient, dbManager, aiClient)
+	registry.Register(analyzeCmd)
+
+	// Create task from discussion command
+	createTaskCmd := commands.NewCreateTaskCommand(todoistClient, dbManager)
+	registry.Register(createTaskCmd)
 
 	return &Bot{
 		api:             api,
@@ -127,47 +138,62 @@ func (b *Bot) handleUpdate(update tgbotapi.Update) {
 
 // handleMessage processes a single message from a user
 func (b *Bot) handleMessage(message *tgbotapi.Message) {
-	log.Printf("[%s] %s", message.From.UserName, message.Text)
+	log.Printf("📨 Received message from [%s]: %s", message.From.UserName, message.Text)
 
 	// Only process text messages
 	if message.Text != "" {
 		ctx := context.Background()
 
-		// Check for active session and save text messages
+		// Check for active session
 		hasActive, err := b.dbManager.HasActiveSession(ctx, message.Chat.ID)
-		if err == nil && hasActive && !message.IsCommand() {
-			// Save message to database if there's an active session
-			err := b.dbManager.SaveMessage(
-				ctx,
-				message.Chat.ID,
-				message.MessageID,
-				int64(message.From.ID),
-				message.From.UserName,
-				message.Text,
-			)
-			if err != nil {
-				log.Printf("Error saving message: %v", err)
+		if err != nil {
+			log.Printf("❌ Error checking active session: %v", err)
+		} else if hasActive {
+			// Check if this is NOT a command
+			isCommand := message.IsCommand()
+			log.Printf("🔍 Is command: %v", isCommand)
+			
+			if !isCommand {
+				log.Printf("💾 Saving regular message: '%s'", message.Text)
+				
+				// Save message to database
+				err := b.dbManager.SaveMessage(
+					ctx,
+					message.Chat.ID,
+					message.MessageID,
+					int64(message.From.ID),
+					message.From.UserName,
+					message.Text,
+				)
+				if err != nil {
+					log.Printf("❌ Error saving message: %v", err)
+				} else {
+					log.Printf("✅ Message saved successfully!")
+				}
+			} else {
+				log.Printf("⚡ Command detected, skipping save: %s", message.Text)
 			}
 		}
 	}
 
-	if !message.IsCommand() {
-		return
-	}
+	// Process commands
+	if message.IsCommand() {
+		log.Printf("🔄 Processing command: %s", message.Text)
+		
+		commandName := message.Command()
+		command, exists := b.commandRegistry.Get(commandName)
 
-	commandName := message.Command()
-	command, exists := b.commandRegistry.Get(commandName)
+		if !exists {
+			msg := tgbotapi.NewMessage(message.Chat.ID, "Unknown command. Use /help to see available commands.")
+			b.api.Send(msg)
+			return
+		}
 
-	if !exists {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Unknown command. Use /help to see available commands.")
-		b.api.Send(msg)
-		return
-	}
-
-	// Execute the command
-	responseMsg := command.Execute(message)
-	_, err := b.api.Send(responseMsg)
-	if err != nil {
-		log.Printf("Error sending message: %v", err)
+		// Execute the command
+		responseMsg := command.Execute(message)
+		_, err := b.api.Send(responseMsg)
+		if err != nil {
+			log.Printf("Error sending message: %v", err)
+		}
 	}
 }

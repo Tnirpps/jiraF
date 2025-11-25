@@ -26,7 +26,7 @@ services:
     container_name: telegram-bot
     volumes:
       - ./.env:/app/.env
-      - ./internal/db/schema.sql:/app/internal/db/schema.sql
+      - ./internal/db:/app/internal/db  # Монтируем всю папку db
     depends_on:
       postgres:
         condition: service_healthy
