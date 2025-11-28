@@ -3,9 +3,12 @@ package bot
 import (
 	"context"
 	"log"
+	"os"
 	"sync"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/commands"
 	"github.com/user/telegram-bot/internal/todoist"
 )
@@ -26,6 +29,9 @@ func New(telegramToken string, todoistToken string, dbManager commands.DBManager
 
 	// Create Todoist client
 	todoistClient := todoist.NewClient(todoistToken)
+
+	// Create AI client
+	aiClient := ai.NewClient(os.Getenv("AI_API_TOKEN"))
 
 	// Initialize command registry
 	registry := commands.NewRegistry()
@@ -69,7 +75,13 @@ func New(telegramToken string, todoistToken string, dbManager commands.DBManager
 	cancelCmd := commands.NewCancelCommand(dbManager)
 	registry.Register(cancelCmd)
 
-	// Note: create_task command will be implemented in the future
+	// AI analysis command
+	analyzeCmd := commands.NewAnalyzeCommand(todoistClient, dbManager, aiClient)
+	registry.Register(analyzeCmd)
+
+	// Create task from discussion command
+	createTaskCmd := commands.NewCreateTaskCommand(todoistClient, dbManager)
+	registry.Register(createTaskCmd)
 
 	return &Bot{
 		api:             api,
@@ -129,14 +141,14 @@ func (b *Bot) handleUpdate(update tgbotapi.Update) {
 func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	log.Printf("[%s] %s", message.From.UserName, message.Text)
 
-	// Only process text messages
-	if message.Text != "" {
+	// Save non-command messages during active sessions
+	if message.Text != "" && !message.IsCommand() {
 		ctx := context.Background()
-
-		// Check for active session and save text messages
+		
 		hasActive, err := b.dbManager.HasActiveSession(ctx, message.Chat.ID)
-		if err == nil && hasActive && !message.IsCommand() {
-			// Save message to database if there's an active session
+		if err != nil {
+			log.Printf("Error checking active session: %v", err)
+		} else if hasActive {
 			err := b.dbManager.SaveMessage(
 				ctx,
 				message.Chat.ID,
@@ -151,23 +163,48 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 		}
 	}
 
-	if !message.IsCommand() {
+	// Process commands
+	if message.IsCommand() {
+		commandName := message.Command()
+		command, exists := b.commandRegistry.Get(commandName)
+
+		if !exists {
+			b.sendMessage(message.Chat.ID, "Unknown command. Use /help to see available commands.")
+			return
+		}
+
+		responseMsg := command.Execute(message)
+		b.sendResponse(responseMsg)
+	}
+}
+
+// sendResponse отправляет сообщение с автоматическим определением ParseMode
+func (b *Bot) sendResponse(msgConfig *tgbotapi.MessageConfig) {
+	if msgConfig == nil {
 		return
 	}
-
-	commandName := message.Command()
-	command, exists := b.commandRegistry.Get(commandName)
-
-	if !exists {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Unknown command. Use /help to see available commands.")
-		b.api.Send(msg)
-		return
+	
+	// Автоматически устанавливаем Markdown для сообщений с форматированием
+	if strings.Contains(msgConfig.Text, "*") || strings.Contains(msgConfig.Text, "`") || 
+	   strings.Contains(msgConfig.Text, "[") || strings.Contains(msgConfig.Text, "_") {
+		msgConfig.ParseMode = "Markdown"
 	}
-
-	// Execute the command
-	responseMsg := command.Execute(message)
-	_, err := b.api.Send(responseMsg)
+	
+	_, err := b.api.Send(msgConfig)
 	if err != nil {
 		log.Printf("Error sending message: %v", err)
 	}
+}
+
+// sendMessage упрощенная отправка текстовых сообщений
+func (b *Bot) sendMessage(chatID int64, text string) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	b.sendResponse(&msg)
+}
+
+// newMarkdownMessage создает сообщение с Markdown форматированием
+func (b *Bot) newMarkdownMessage(chatID int64, text string) tgbotapi.MessageConfig {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	return msg
 }

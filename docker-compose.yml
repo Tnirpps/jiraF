@@ -25,13 +25,12 @@ services:
       dockerfile: Dockerfile
     container_name: telegram-bot
     volumes:
-      - ./.env:/app/.env
-      - ./internal/db/schema.sql:/app/internal/db/schema.sql
+      - ./.env:/app/.env  # Переопределяем .env если нужно
+      - ./internal/db/schema.sql:/app/internal/db/schema.sql  # Только схема БД
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    tty: true
 
 volumes:
   postgres_data:
