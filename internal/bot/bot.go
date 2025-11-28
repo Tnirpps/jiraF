@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/user/telegram-bot/internal/ai"
@@ -138,62 +139,72 @@ func (b *Bot) handleUpdate(update tgbotapi.Update) {
 
 // handleMessage processes a single message from a user
 func (b *Bot) handleMessage(message *tgbotapi.Message) {
-	log.Printf("📨 Received message from [%s]: %s", message.From.UserName, message.Text)
+	log.Printf("[%s] %s", message.From.UserName, message.Text)
 
-	// Only process text messages
-	if message.Text != "" {
+	// Save non-command messages during active sessions
+	if message.Text != "" && !message.IsCommand() {
 		ctx := context.Background()
-
-		// Check for active session
+		
 		hasActive, err := b.dbManager.HasActiveSession(ctx, message.Chat.ID)
 		if err != nil {
-			log.Printf("❌ Error checking active session: %v", err)
+			log.Printf("Error checking active session: %v", err)
 		} else if hasActive {
-			// Check if this is NOT a command
-			isCommand := message.IsCommand()
-			log.Printf("🔍 Is command: %v", isCommand)
-			
-			if !isCommand {
-				log.Printf("💾 Saving regular message: '%s'", message.Text)
-				
-				// Save message to database
-				err := b.dbManager.SaveMessage(
-					ctx,
-					message.Chat.ID,
-					message.MessageID,
-					int64(message.From.ID),
-					message.From.UserName,
-					message.Text,
-				)
-				if err != nil {
-					log.Printf("❌ Error saving message: %v", err)
-				} else {
-					log.Printf("✅ Message saved successfully!")
-				}
-			} else {
-				log.Printf("⚡ Command detected, skipping save: %s", message.Text)
+			err := b.dbManager.SaveMessage(
+				ctx,
+				message.Chat.ID,
+				message.MessageID,
+				int64(message.From.ID),
+				message.From.UserName,
+				message.Text,
+			)
+			if err != nil {
+				log.Printf("Error saving message: %v", err)
 			}
 		}
 	}
 
 	// Process commands
 	if message.IsCommand() {
-		log.Printf("🔄 Processing command: %s", message.Text)
-		
 		commandName := message.Command()
 		command, exists := b.commandRegistry.Get(commandName)
 
 		if !exists {
-			msg := tgbotapi.NewMessage(message.Chat.ID, "Unknown command. Use /help to see available commands.")
-			b.api.Send(msg)
+			b.sendMessage(message.Chat.ID, "Unknown command. Use /help to see available commands.")
 			return
 		}
 
-		// Execute the command
 		responseMsg := command.Execute(message)
-		_, err := b.api.Send(responseMsg)
-		if err != nil {
-			log.Printf("Error sending message: %v", err)
-		}
+		b.sendResponse(responseMsg)
 	}
+}
+
+// sendResponse отправляет сообщение с автоматическим определением ParseMode
+func (b *Bot) sendResponse(msgConfig *tgbotapi.MessageConfig) {
+	if msgConfig == nil {
+		return
+	}
+	
+	// Автоматически устанавливаем Markdown для сообщений с форматированием
+	if strings.Contains(msgConfig.Text, "*") || strings.Contains(msgConfig.Text, "`") || 
+	   strings.Contains(msgConfig.Text, "[") || strings.Contains(msgConfig.Text, "_") {
+		msgConfig.ParseMode = "Markdown"
+	}
+	
+	_, err := b.api.Send(msgConfig)
+	if err != nil {
+		log.Printf("Error sending message: %v", err)
+	}
+}
+
+// sendMessage упрощенная отправка текстовых сообщений
+func (b *Bot) sendMessage(chatID int64, text string) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	b.sendResponse(&msg)
+}
+
+// newMarkdownMessage создает сообщение с Markdown форматированием
+func (b *Bot) newMarkdownMessage(chatID int64, text string) tgbotapi.MessageConfig {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	return msg
 }

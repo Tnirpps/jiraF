@@ -3,11 +3,11 @@ package commands
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/user/telegram-bot/internal/ai"
-	//"github.com/user/telegram-bot/internal/db"
 	"github.com/user/telegram-bot/internal/todoist"
 )
 
@@ -39,31 +39,34 @@ func (c *AnalyzeCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageCon
 	// Check if there's an active session
 	hasActive, err := c.dbManager.HasActiveSession(ctx, message.Chat.ID)
 	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error checking session: %v", err))
+		log.Printf("Error checking session: %v", err)
+		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ Unable to check discussion status")
 		return &msg
 	}
 
 	if !hasActive {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "No active discussion to analyze. Start with /start_discussion first.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ No active discussion to analyze. Start with /start_discussion first.")
 		return &msg
 	}
 
 	// Get active session
 	session, err := c.dbManager.GetActiveSession(ctx, message.Chat.ID)
 	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error getting session: %v", err))
+		log.Printf("Error getting session: %v", err)
+		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ Unable to access discussion data")
 		return &msg
 	}
 
 	// Get all messages from the session
 	messages, err := c.dbManager.GetSessionMessages(ctx, session.ID)
 	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error getting messages: %v", err))
+		log.Printf("Error getting messages: %v", err)
+		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ Unable to retrieve discussion messages")
 		return &msg
 	}
 
 	if len(messages) == 0 {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "No messages in discussion to analyze.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ No messages in discussion to analyze.")
 		return &msg
 	}
 
@@ -78,14 +81,16 @@ func (c *AnalyzeCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageCon
 	// Analyze with AI
 	analyzedTask, err := c.aiClient.AnalyzeDiscussion(ctx, messageTexts)
 	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("AI analysis failed: %v", err))
+		log.Printf("AI analysis failed: %v", err)
+		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ AI analysis failed. Please try again.")
 		return &msg
 	}
 
 	// Get project ID
 	projectID, err := c.dbManager.GetTodoistProjectID(ctx, message.Chat.ID)
 	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error getting project: %v", err))
+		log.Printf("Error getting project: %v", err)
+		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ Unable to access project settings")
 		return &msg
 	}
 
@@ -101,20 +106,21 @@ func (c *AnalyzeCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageCon
 
 	createdTask, err := c.todoistClient.CreateTask(ctx, taskRequest)
 	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Failed to create task: %v", err))
+		log.Printf("Failed to create task: %v", err)
+		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ Failed to create task in Todoist")
 		return &msg
 	}
 
 	// Save to database
 	err = c.dbManager.SaveCreatedTask(ctx, session.ID, createdTask.ID, createdTask.URL)
 	if err != nil {
-		fmt.Printf("Failed to save created task: %v\n", err)
+		log.Printf("Failed to save created task: %v", err)
 	}
 
 	// Close session
 	err = c.dbManager.CloseSession(ctx, message.Chat.ID)
 	if err != nil {
-		fmt.Printf("Failed to close session: %v\n", err)
+		log.Printf("Failed to close session: %v", err)
 	}
 
 	// Success response
