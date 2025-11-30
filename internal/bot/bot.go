@@ -4,8 +4,8 @@ import (
 	"context"
 	"log"
 	"os"
-	"sync"
 	"strings"
+	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/user/telegram-bot/internal/ai"
@@ -17,6 +17,7 @@ type Bot struct {
 	api             *tgbotapi.BotAPI
 	commandRegistry *commands.Registry
 	dbManager       commands.DBManager
+	callbackHandler *commands.CallbackHandler
 	wg              sync.WaitGroup
 	stopCh          chan struct{}
 }
@@ -44,14 +45,8 @@ func New(telegramToken string, todoistToken string, dbManager commands.DBManager
 	registry.Register(helpCmd)
 
 	// Task management commands
-	createCmd := commands.NewCreateCommand(todoistClient)
-	registry.Register(createCmd)
-
 	listCmd := commands.NewListCommand(todoistClient)
 	registry.Register(listCmd)
-
-	completeCmd := commands.NewCompleteCommand(todoistClient)
-	registry.Register(completeCmd)
 
 	viewCmd := commands.NewViewCommand(todoistClient)
 	registry.Register(viewCmd)
@@ -80,13 +75,17 @@ func New(telegramToken string, todoistToken string, dbManager commands.DBManager
 	registry.Register(analyzeCmd)
 
 	// Create task from discussion command
-	createTaskCmd := commands.NewCreateTaskCommand(todoistClient, dbManager)
+	createTaskCmd := commands.NewCreateTaskCommand(todoistClient, dbManager, aiClient)
 	registry.Register(createTaskCmd)
+
+	// Create callback handler
+	callbackHandler := commands.NewCallbackHandler(dbManager)
 
 	return &Bot{
 		api:             api,
 		commandRegistry: registry,
 		dbManager:       dbManager,
+		callbackHandler: callbackHandler,
 		stopCh:          make(chan struct{}),
 	}, nil
 }
@@ -135,6 +134,60 @@ func (b *Bot) handleUpdate(update tgbotapi.Update) {
 		b.handleMessage(update.Message)
 		return
 	}
+
+	if update.CallbackQuery != nil {
+		b.handleCallback(update.CallbackQuery)
+		return
+	}
+}
+
+// handleCallback processes callback queries from inline buttons
+func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
+	log.Printf("[CALLBACK] %s: %s", callback.From.UserName, callback.Data)
+
+	// Extract command type from callback data
+	parts := strings.Split(callback.Data, "_")
+	if len(parts) < 1 {
+		return
+	}
+
+	callbackType := parts[0]
+
+	// Use our dedicated callback handler for all callback types
+	callbackCfg := b.callbackHandler.HandleCallback(callback)
+	if callbackCfg != nil {
+		_, err := b.api.Request(callbackCfg)
+		if err != nil {
+			log.Printf("Error sending callback response: %v", err)
+		}
+	}
+
+	// Delete the original message with buttons
+	deleteMsg := tgbotapi.NewDeleteMessage(callback.Message.Chat.ID, callback.Message.MessageID)
+	_, err := b.api.Request(deleteMsg)
+	if err != nil {
+		log.Printf("Error deleting message: %v", err)
+	}
+
+	// For edit action, don't send a new message - we'll let the handler implement that later
+	if callbackType != commands.CallbackEdit {
+		// Send a confirmation message
+		var text string
+		if callbackType == commands.CallbackConfirm {
+			text = "✅ Action confirmed (placeholder - will create task in next phase)"
+		} else if callbackType == commands.CallbackCancel {
+			text = "❌ Action canceled"
+		} else {
+			// Unknown callback type
+			text = "🔄 Action processed"
+		}
+
+		msg := tgbotapi.NewMessage(callback.Message.Chat.ID, text)
+		_, err = b.api.Send(msg)
+		if err != nil {
+			log.Printf("Error sending confirmation message: %v", err)
+		}
+	}
 }
 
 // handleMessage processes a single message from a user
@@ -144,7 +197,7 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	// Save non-command messages during active sessions
 	if message.Text != "" && !message.IsCommand() {
 		ctx := context.Background()
-		
+
 		hasActive, err := b.dbManager.HasActiveSession(ctx, message.Chat.ID)
 		if err != nil {
 			log.Printf("Error checking active session: %v", err)
@@ -166,6 +219,7 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	// Process commands
 	if message.IsCommand() {
 		commandName := message.Command()
+		log.Printf("[COMMAND] %s: %s", message.From.UserName, commandName)
 		command, exists := b.commandRegistry.Get(commandName)
 
 		if !exists {
@@ -178,33 +232,21 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	}
 }
 
-// sendResponse отправляет сообщение с автоматическим определением ParseMode
+// sendResponse sends a message with debugging logs
 func (b *Bot) sendResponse(msgConfig *tgbotapi.MessageConfig) {
 	if msgConfig == nil {
 		return
 	}
-	
-	// Автоматически устанавливаем Markdown для сообщений с форматированием
-	if strings.Contains(msgConfig.Text, "*") || strings.Contains(msgConfig.Text, "`") || 
-	   strings.Contains(msgConfig.Text, "[") || strings.Contains(msgConfig.Text, "_") {
-		msgConfig.ParseMode = "Markdown"
-	}
-	
+
 	_, err := b.api.Send(msgConfig)
 	if err != nil {
 		log.Printf("Error sending message: %v", err)
+		log.Printf("Message text was: %s", msgConfig.Text)
 	}
 }
 
-// sendMessage упрощенная отправка текстовых сообщений
+// sendMessage simplified method for sending text messages
 func (b *Bot) sendMessage(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	b.sendResponse(&msg)
-}
-
-// newMarkdownMessage создает сообщение с Markdown форматированием
-func (b *Bot) newMarkdownMessage(chatID int64, text string) tgbotapi.MessageConfig {
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	return msg
 }

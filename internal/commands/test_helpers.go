@@ -89,6 +89,16 @@ func (m *MockDBManager) GetSessionMessages(ctx context.Context, sessionID int) (
 	return args.Get(0).([]db.Message), args.Error(1)
 }
 
+func (m *MockDBManager) SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, assigneeNote string) error {
+	args := m.Called(ctx, sessionID, title, description, dueISO, priority, assigneeNote)
+	return args.Error(0)
+}
+
+func (m *MockDBManager) SaveCreatedTask(ctx context.Context, sessionID int, todoistTaskID, url string) error {
+	args := m.Called(ctx, sessionID, todoistTaskID, url)
+	return args.Error(0)
+}
+
 // Helper functions for fluent API style mock configuration
 func ConfigureMockDB(m *MockDBManager) *MockDBHelper {
 	return &MockDBHelper{mock: m}

@@ -20,7 +20,8 @@ type DBManager interface {
 	CloseSession(ctx context.Context, chatID int64) error
 	SaveMessage(ctx context.Context, chatID int64, messageID int, userID int64, username, text string) error
 	GetSessionMessages(ctx context.Context, sessionID int) ([]db.Message, error)
-	
-	// ДОБАВЬТЕ этот метод для команды analyze
+
+	// Methods for draft and created tasks
+	SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, assigneeNote string) error
 	SaveCreatedTask(ctx context.Context, sessionID int, todoistTaskID, url string) error
 }
