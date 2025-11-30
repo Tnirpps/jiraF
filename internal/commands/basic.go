@@ -74,6 +74,8 @@ func (c *HelpCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig
 
 	helpText += "Type `/help` anytime to see this list again."
 
+	helpText += "• `/analyze` - AI-analyze discussion and create smart task\n\n"
+
 	msg := tgbotapi.NewMessage(message.Chat.ID, helpText)
 	msg.ParseMode = "Markdown"
 	return &msg
