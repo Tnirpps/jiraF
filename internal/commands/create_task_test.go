@@ -40,7 +40,7 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 		// Set up mocks
 		mockDB.On("HasActiveSession", mock.Anything, int64(123)).Return(true, nil)
 
-		session := &db.Session{ID: 42, ChatID: 123, Status: "open"}
+		session := &db.Session{ID: 42, ChatID: 123, Status: "open", OwnerID: 456}
 		mockDB.On("GetActiveSession", mock.Anything, int64(123)).Return(session, nil)
 
 		// Mock some messages
@@ -94,7 +94,13 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 			Chat: &tgbotapi.Chat{
 				ID: 123,
 			},
+			From: &tgbotapi.User{
+				ID: 456, // Add sender ID for ownership verification
+			},
 		}
+
+		// Mock ownership verification
+		mockDB.On("IsSessionOwner", mock.Anything, 42, int64(456)).Return(true, nil)
 
 		// Execute the command
 		result := cmd.Execute(message)
@@ -103,7 +109,7 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 		assert.NotNil(t, result)
 		assert.Contains(t, result.Text, "Draft Task Preview")
 		assert.Contains(t, result.Text, "Implement NLP feature")
-		assert.Contains(t, result.Text, "Priority: Высокий")
+		assert.Contains(t, result.Text, "*Priority:* Высокий")
 
 		// Check that the message has a reply markup with buttons
 		markup, ok := result.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup)
@@ -122,6 +128,9 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 		message := &tgbotapi.Message{
 			Chat: &tgbotapi.Chat{
 				ID: 456,
+			},
+			From: &tgbotapi.User{
+				ID: 789, // Add sender ID
 			},
 		}
 

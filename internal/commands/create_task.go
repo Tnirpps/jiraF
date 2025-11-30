@@ -196,8 +196,9 @@ func (c *CreateTaskCommand) extractAssignee(text string) string {
 
 	for _, phrase := range assigneePhrases {
 		if idx := strings.Index(lowerText, phrase); idx != -1 {
-			// Get the text after the phrase
-			afterPhrase := lowerText[idx+len(phrase):]
+			// Get the text after the phrase - use original text to preserve case
+			afterPhraseIdx := idx + len(phrase)
+			afterPhrase := text[afterPhraseIdx:]
 			words := strings.Fields(afterPhrase)
 			if len(words) > 0 {
 				return words[0]
