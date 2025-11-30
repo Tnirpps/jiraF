@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS chat_settings (
 CREATE TABLE IF NOT EXISTS sessions (
     id SERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL REFERENCES chats(id),
+    owner_id BIGINT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('open', 'closed')),
     started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     closed_at TIMESTAMP WITH TIME ZONE

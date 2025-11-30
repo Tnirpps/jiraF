@@ -148,44 +148,49 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 	// Extract command type from callback data
 	parts := strings.Split(callback.Data, "_")
 	if len(parts) < 1 {
+		log.Printf("Invalid callback data format: %s", callback.Data)
 		return
 	}
 
 	callbackType := parts[0]
+	log.Printf("Parsed callback type: %s, original data: %s", callbackType, callback.Data)
 
 	// Use our dedicated callback handler for all callback types
-	callbackCfg := b.callbackHandler.HandleCallback(callback)
-	if callbackCfg != nil {
-		_, err := b.api.Request(callbackCfg)
+	callbackResp := b.callbackHandler.HandleCallback(callback)
+	if callbackResp != nil && callbackResp.CallbackConfig != nil {
+		_, err := b.api.Request(callbackResp.CallbackConfig)
 		if err != nil {
 			log.Printf("Error sending callback response: %v", err)
 		}
 	}
 
-	// Delete the original message with buttons
-	deleteMsg := tgbotapi.NewDeleteMessage(callback.Message.Chat.ID, callback.Message.MessageID)
-	_, err := b.api.Request(deleteMsg)
-	if err != nil {
-		log.Printf("Error deleting message: %v", err)
-	}
-
-	// For edit action, don't send a new message - we'll let the handler implement that later
-	if callbackType != commands.CallbackEdit {
-		// Send a confirmation message
-		var text string
-		if callbackType == commands.CallbackConfirm {
-			text = "✅ Action confirmed (placeholder - will create task in next phase)"
-		} else if callbackType == commands.CallbackCancel {
-			text = "❌ Action canceled"
-		} else {
-			// Unknown callback type
-			text = "🔄 Action processed"
+	// Only delete the message if the user is the session owner
+	if callbackResp.IsOwner {
+		// Delete the original message with buttons
+		deleteMsg := tgbotapi.NewDeleteMessage(callback.Message.Chat.ID, callback.Message.MessageID)
+		_, err := b.api.Request(deleteMsg)
+		if err != nil {
+			log.Printf("Error deleting message: %v", err)
 		}
 
-		msg := tgbotapi.NewMessage(callback.Message.Chat.ID, text)
-		_, err = b.api.Send(msg)
-		if err != nil {
-			log.Printf("Error sending confirmation message: %v", err)
+		// For edit action, don't send a new message - we'll let the handler implement that later
+		if callbackType != commands.CallbackEdit {
+			// Send a confirmation message
+			var text string
+			if callbackType == commands.CallbackConfirm {
+				text = "✅ Action confirmed (placeholder - will create task in next phase)"
+			} else if callbackType == commands.CallbackCancel {
+				text = "❌ Action canceled"
+			} else {
+				// Unknown callback type
+				text = "🔄 Action processed"
+			}
+
+			msg := tgbotapi.NewMessage(callback.Message.Chat.ID, text)
+			_, err = b.api.Send(msg)
+			if err != nil {
+				log.Printf("Error sending confirmation message: %v", err)
+			}
 		}
 	}
 }

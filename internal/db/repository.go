@@ -68,8 +68,8 @@ func (m *Manager) GetTodoistProjectID(ctx context.Context, chatID int64) (string
 	return projectID.String, nil
 }
 
-// StartSession creates a new session for a chat
-func (m *Manager) StartSession(ctx context.Context, chatID int64) (int, error) {
+// StartSession creates a new session for a chat with the specified owner
+func (m *Manager) StartSession(ctx context.Context, chatID int64, ownerID int64) (int, error) {
 	// Check if there's an active session
 	active, err := m.HasActiveSession(ctx, chatID)
 	if err != nil {
@@ -80,14 +80,14 @@ func (m *Manager) StartSession(ctx context.Context, chatID int64) (int, error) {
 		return 0, ErrSessionAlreadyExists
 	}
 
-	// Create a new session
+	// Create a new session with owner
 	query := `
-		INSERT INTO sessions (chat_id, status)
-		VALUES ($1, 'open')
+		INSERT INTO sessions (chat_id, owner_id, status)
+		VALUES ($1, $2, 'open')
 		RETURNING id
 	`
 	var sessionID int
-	err = m.db.QueryRowContext(ctx, query, chatID).Scan(&sessionID)
+	err = m.db.QueryRowContext(ctx, query, chatID, ownerID).Scan(&sessionID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to start session: %w", err)
 	}
@@ -116,7 +116,7 @@ func (m *Manager) HasActiveSession(ctx context.Context, chatID int64) (bool, err
 // GetActiveSession returns the active session for a chat
 func (m *Manager) GetActiveSession(ctx context.Context, chatID int64) (*Session, error) {
 	query := `
-		SELECT id, chat_id, status, started_at, closed_at
+		SELECT id, chat_id, owner_id, status, started_at, closed_at
 		FROM sessions
 		WHERE chat_id = $1 AND status = 'open'
 		ORDER BY started_at DESC
@@ -126,6 +126,7 @@ func (m *Manager) GetActiveSession(ctx context.Context, chatID int64) (*Session,
 	err := m.db.QueryRowContext(ctx, query, chatID).Scan(
 		&session.ID,
 		&session.ChatID,
+		&session.OwnerID,
 		&session.Status,
 		&session.StartedAt,
 		&session.ClosedAt,
@@ -138,6 +139,30 @@ func (m *Manager) GetActiveSession(ctx context.Context, chatID int64) (*Session,
 	}
 
 	return &session, nil
+}
+
+// IsSessionOwner checks if the given user is the owner of the session
+func (m *Manager) IsSessionOwner(ctx context.Context, sessionID int, userID int64) (bool, error) {
+	query := `
+		SELECT owner_id
+		FROM sessions
+		WHERE id = $1
+	`
+	var ownerID sql.NullInt64
+	err := m.db.QueryRowContext(ctx, query, sessionID).Scan(&ownerID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, fmt.Errorf("session not found")
+		}
+		return false, fmt.Errorf("failed to get session owner: %w", err)
+	}
+
+	// If there's no owner set, return false
+	if !ownerID.Valid {
+		return false, nil
+	}
+
+	return ownerID.Int64 == userID, nil
 }
 
 // CloseSession closes an active session

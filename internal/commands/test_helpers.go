@@ -21,9 +21,15 @@ func CreateCommandMessage(chatID int64, commandText string, args ...string) *tgb
 	// Command entity length is the length of the command, including the /
 	commandLength := len(commandText)
 
+	// Default user ID is the same as chat ID for simplicity in testing
+	userID := chatID
+
 	return &tgbotapi.Message{
 		Chat: &tgbotapi.Chat{
 			ID: chatID,
+		},
+		From: &tgbotapi.User{
+			ID: userID,
 		},
 		Text: fullText,
 		Entities: []tgbotapi.MessageEntity{
@@ -69,9 +75,14 @@ func (m *MockDBManager) GetActiveSession(ctx context.Context, chatID int64) (*db
 	return args.Get(0).(*db.Session), args.Error(1)
 }
 
-func (m *MockDBManager) StartSession(ctx context.Context, chatID int64) (int, error) {
-	args := m.Called(ctx, chatID)
+func (m *MockDBManager) StartSession(ctx context.Context, chatID int64, ownerID int64) (int, error) {
+	args := m.Called(ctx, chatID, ownerID)
 	return args.Int(0), args.Error(1)
+}
+
+func (m *MockDBManager) IsSessionOwner(ctx context.Context, sessionID int, userID int64) (bool, error) {
+	args := m.Called(ctx, sessionID, userID)
+	return args.Bool(0), args.Error(1)
 }
 
 func (m *MockDBManager) CloseSession(ctx context.Context, chatID int64) error {
@@ -128,8 +139,14 @@ func (h *MockDBHelper) WithActiveSession(chatID int64, hasActive bool, err error
 }
 
 // WithStartSession sets up the mock to expect and respond to StartSession calls
-func (h *MockDBHelper) WithStartSession(chatID int64, sessionID int, err error) *MockDBHelper {
-	h.mock.On("StartSession", mock.Anything, chatID).Return(sessionID, err)
+func (h *MockDBHelper) WithStartSession(chatID int64, ownerID int64, sessionID int, err error) *MockDBHelper {
+	h.mock.On("StartSession", mock.Anything, chatID, ownerID).Return(sessionID, err)
+	return h
+}
+
+// WithIsSessionOwner sets up the mock to expect and respond to IsSessionOwner calls
+func (h *MockDBHelper) WithIsSessionOwner(sessionID int, userID int64, isOwner bool, err error) *MockDBHelper {
+	h.mock.On("IsSessionOwner", mock.Anything, sessionID, userID).Return(isOwner, err)
 	return h
 }
 

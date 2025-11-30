@@ -63,6 +63,13 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 		return &msg
 	}
 
+	// Check if the user is the session owner
+	senderID := int64(message.From.ID)
+	if session.OwnerID != senderID {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Only the user who started this discussion can create a task from it.")
+		return &msg
+	}
+
 	// Get all messages from the session
 	messages, err := c.dbManager.GetSessionMessages(ctx, session.ID)
 	if err != nil {
@@ -155,9 +162,9 @@ func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, ta
 
 	// Add inline keyboard
 	sessionIDStr := fmt.Sprintf("%d", sessionID)
-	confirmButton := tgbotapi.NewInlineKeyboardButtonData("✅ Confirm", CallbackConfirm+"_"+sessionIDStr)
-	editButton := tgbotapi.NewInlineKeyboardButtonData("✏️ Edit", CallbackEdit+"_"+sessionIDStr)
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Cancel", CallbackCancel+"_"+sessionIDStr)
+	confirmButton := tgbotapi.NewInlineKeyboardButtonData("✅ Confirm", CallbackConfirm+CallbackDataSeparator+sessionIDStr)
+	editButton := tgbotapi.NewInlineKeyboardButtonData("✏️ Edit", CallbackEdit+CallbackDataSeparator+sessionIDStr)
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Cancel", CallbackCancel+CallbackDataSeparator+sessionIDStr)
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(confirmButton, editButton, cancelButton),

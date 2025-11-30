@@ -19,6 +19,7 @@ type ChatSettings struct {
 type Session struct {
 	ID        int          `db:"id"`
 	ChatID    int64        `db:"chat_id"`
+	OwnerID   int64        `db:"owner_id"`
 	Status    string       `db:"status"`
 	StartedAt time.Time    `db:"started_at"`
 	ClosedAt  sql.NullTime `db:"closed_at"`

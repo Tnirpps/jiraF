@@ -1,7 +1,10 @@
 package commands
 
 import (
+	"context"
+	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -19,6 +22,15 @@ const (
 	CallbackCancel = "cancel_task"
 )
 
+// Separator used in callback data
+const CallbackDataSeparator = ":"
+
+// CallbackResponse contains the response data for a callback query
+type CallbackResponse struct {
+	CallbackConfig *tgbotapi.CallbackConfig
+	IsOwner        bool
+}
+
 // CallbackHandler processes callback queries from buttons
 type CallbackHandler struct {
 	dbManager DBManager
@@ -32,17 +44,24 @@ func NewCallbackHandler(dbManager DBManager) *CallbackHandler {
 }
 
 // HandleCallback processes callback queries
-func (h *CallbackHandler) HandleCallback(callback *tgbotapi.CallbackQuery) *tgbotapi.CallbackConfig {
-	// Extract callback type and session ID
-	parts := strings.Split(callback.Data, "_")
-	if len(parts) < 2 {
+func (h *CallbackHandler) HandleCallback(callback *tgbotapi.CallbackQuery) *CallbackResponse {
+	// Extract callback type and session ID from format "{action}:{session_id}"
+	parts := strings.Split(callback.Data, CallbackDataSeparator)
+	if len(parts) != 2 {
+		log.Printf("Invalid callback data format: %s", callback.Data)
 		callbackCfg := tgbotapi.NewCallback(callback.ID, "Invalid callback data")
-		return &callbackCfg
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        false,
+		}
 	}
 
 	callbackType := parts[0]
-	// The rest is the session ID
-	sessionIDStr := strings.Join(parts[1:], "_")
+	log.Printf("Callback type: %s", callbackType)
+
+	// The session ID is the second part
+	sessionIDStr := parts[1]
+	log.Printf("Session ID: %s", sessionIDStr)
 
 	// Process different callback types
 	switch callbackType {
@@ -54,12 +73,53 @@ func (h *CallbackHandler) HandleCallback(callback *tgbotapi.CallbackQuery) *tgbo
 		return h.handleCancelCallback(callback, sessionIDStr)
 	default:
 		callbackCfg := tgbotapi.NewCallback(callback.ID, "Unknown callback type")
-		return &callbackCfg
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        false,
+		}
 	}
 }
 
+// verifySessionOwner checks if the user is the owner of the session
+func (h *CallbackHandler) verifySessionOwner(sessionIDStr string, userID int64) (bool, error) {
+	ctx := context.Background()
+
+	// Parse session ID
+	sessionID, err := strconv.Atoi(sessionIDStr)
+	if err != nil {
+		return false, fmt.Errorf("invalid session ID: %v", err)
+	}
+
+	// Check if the user is the owner using the DB method
+	isOwner, err := h.dbManager.IsSessionOwner(ctx, sessionID, userID)
+	if err != nil {
+		return false, fmt.Errorf("failed to verify session ownership: %v", err)
+	}
+
+	return isOwner, nil
+}
+
 // handleConfirmCallback handles confirming a task
-func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery, sessionIDStr string) *tgbotapi.CallbackConfig {
+func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery, sessionIDStr string) *CallbackResponse {
+	// Check if the user is the owner of the session
+	isOwner, err := h.verifySessionOwner(sessionIDStr, int64(callback.From.ID))
+	if err != nil {
+		log.Printf("Error verifying session owner: %v", err)
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Error: Failed to verify session ownership")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        false,
+		}
+	}
+
+	if !isOwner {
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Only the user who started this discussion can confirm the task")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        false,
+		}
+	}
+
 	// PLACEHOLDER: This will be implemented in the next phase
 	// Will connect to Todoist API and create actual task
 	log.Printf("PLACEHOLDER: Confirming task from session %s", sessionIDStr)
@@ -71,11 +131,33 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 	// 4. Close the session
 
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "✅ Got it! This will create a task in the next phase.")
-	return &callbackCfg
+	return &CallbackResponse{
+		CallbackConfig: &callbackCfg,
+		IsOwner:        true,
+	}
 }
 
 // handleEditCallback handles editing a task
-func (h *CallbackHandler) handleEditCallback(callback *tgbotapi.CallbackQuery, sessionIDStr string) *tgbotapi.CallbackConfig {
+func (h *CallbackHandler) handleEditCallback(callback *tgbotapi.CallbackQuery, sessionIDStr string) *CallbackResponse {
+	// Check if the user is the owner of the session
+	isOwner, err := h.verifySessionOwner(sessionIDStr, int64(callback.From.ID))
+	if err != nil {
+		log.Printf("Error verifying session owner: %v", err)
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Error: Failed to verify session ownership")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        false,
+		}
+	}
+
+	if !isOwner {
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Only the user who started this discussion can edit the task")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        false,
+		}
+	}
+
 	// PLACEHOLDER: This will be implemented in the next phase
 	// Will prompt user for edit instructions and apply them to the draft
 	log.Printf("PLACEHOLDER: Editing task from session %s", sessionIDStr)
@@ -87,11 +169,33 @@ func (h *CallbackHandler) handleEditCallback(callback *tgbotapi.CallbackQuery, s
 	// 4. Show a new preview
 
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "✏️ Got it! This will allow editing in the next phase.")
-	return &callbackCfg
+	return &CallbackResponse{
+		CallbackConfig: &callbackCfg,
+		IsOwner:        true,
+	}
 }
 
 // handleCancelCallback handles canceling a task
-func (h *CallbackHandler) handleCancelCallback(callback *tgbotapi.CallbackQuery, sessionIDStr string) *tgbotapi.CallbackConfig {
+func (h *CallbackHandler) handleCancelCallback(callback *tgbotapi.CallbackQuery, sessionIDStr string) *CallbackResponse {
+	// Check if the user is the owner of the session
+	isOwner, err := h.verifySessionOwner(sessionIDStr, int64(callback.From.ID))
+	if err != nil {
+		log.Printf("Error verifying session owner: %v", err)
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Error: Failed to verify session ownership")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        false,
+		}
+	}
+
+	if !isOwner {
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Only the user who started this discussion can cancel the task")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        false,
+		}
+	}
+
 	// PLACEHOLDER: This will be implemented in the next phase
 	// Will cancel task creation and possibly close the session
 	log.Printf("PLACEHOLDER: Canceling task from session %s", sessionIDStr)
@@ -101,5 +205,8 @@ func (h *CallbackHandler) handleCancelCallback(callback *tgbotapi.CallbackQuery,
 	// 2. Possibly close the session
 
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "❌ Got it! Task creation canceled.")
-	return &callbackCfg
+	return &CallbackResponse{
+		CallbackConfig: &callbackCfg,
+		IsOwner:        true,
+	}
 }

@@ -10,7 +10,8 @@ type DBManager interface {
 	// Methods needed for the start_discussion command
 	GetTodoistProjectID(ctx context.Context, chatID int64) (string, error)
 	HasActiveSession(ctx context.Context, chatID int64) (bool, error)
-	StartSession(ctx context.Context, chatID int64) (int, error)
+	StartSession(ctx context.Context, chatID int64, ownerID int64) (int, error)
+	IsSessionOwner(ctx context.Context, sessionID int, userID int64) (bool, error)
 
 	// Methods needed for the set_project command
 	SetTodoistProjectID(ctx context.Context, chatID int64, projectID string) error

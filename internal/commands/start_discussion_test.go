@@ -42,7 +42,7 @@ func TestStartDiscussion_Success(t *testing.T) {
 	mockDBManager := new(MockDBManager)
 	ConfigureMockDB(mockDBManager).
 		WithProjectID(chatID, projectID, nil).
-		WithStartSession(chatID, sessionID, nil)
+		WithStartSession(chatID, chatID, sessionID, nil)
 
 	// Create command
 	cmd := NewStartDiscussionCommand(mockDBManager)
@@ -70,7 +70,7 @@ func TestStartDiscussion_AlreadyActive(t *testing.T) {
 	mockDBManager := new(MockDBManager)
 	ConfigureMockDB(mockDBManager).
 		WithProjectID(chatID, projectID, nil).
-		WithStartSession(chatID, 0, db.ErrSessionAlreadyExists)
+		WithStartSession(chatID, chatID, 0, db.ErrSessionAlreadyExists)
 
 	// Create command
 	cmd := NewStartDiscussionCommand(mockDBManager)

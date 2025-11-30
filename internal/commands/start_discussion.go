@@ -39,7 +39,7 @@ func (c *StartDiscussionCommand) Execute(message *tgbotapi.Message) *tgbotapi.Me
 		return &msg
 	}
 
-	sessionID, err := c.dbManager.StartSession(ctx, message.Chat.ID)
+	sessionID, err := c.dbManager.StartSession(ctx, message.Chat.ID, int64(message.From.ID))
 	if err != nil {
 		if err == db.ErrSessionAlreadyExists {
 			msg := tgbotapi.NewMessage(message.Chat.ID, "A discussion is already in progress. Please finish or /cancel it first.")
