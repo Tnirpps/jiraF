@@ -1,0 +1,29 @@
+clients:
+  # Todoist API client configuration
+  todoist:
+    # Ensure the base URL doesn't have a trailing slash
+    base_url: "https://api.todoist.com/rest/v2"
+    timeout: "30s"
+    retry_count: 3
+    retry_wait_time: "1s"
+    max_retry_wait_time: "10s"
+    enable_logging: true
+    authorization:
+      type: "Bearer"
+      token_env_var: "TODOIST_API_TOKEN"
+    headers:
+      Content-Type: "application/json"
+
+  # HuggingFace API client configuration
+  huggingface:
+    base_url: "https://api.huggingface.co"
+    timeout: "60s"
+    retry_count: 2
+    retry_wait_time: "1s"
+    max_retry_wait_time: "30s"
+    enable_logging: true
+    authorization:
+      type: "Bearer"
+      token_env_var: "AI_API_TOKEN"
+    headers:
+      Content-Type: "application/json"

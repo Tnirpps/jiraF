@@ -2,8 +2,8 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"log"
-	"os"
 	"strings"
 	"sync"
 
@@ -22,17 +22,23 @@ type Bot struct {
 	stopCh          chan struct{}
 }
 
-func New(telegramToken string, todoistToken string, dbManager commands.DBManager) (*Bot, error) {
+func New(telegramToken string, dbManager commands.DBManager) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(telegramToken)
 	if err != nil {
 		return nil, err
 	}
 
 	// Create Todoist client
-	todoistClient := todoist.NewClient(todoistToken)
+	todoistClient, err := todoist.NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Todoist client: %w", err)
+	}
 
 	// Create AI client
-	aiClient := ai.NewClient(os.Getenv("AI_API_TOKEN"))
+	aiClient, err := ai.NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AI client: %w", err)
+	}
 
 	// Initialize command registry
 	registry := commands.NewRegistry()

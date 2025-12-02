@@ -19,6 +19,9 @@ WORKDIR /app
 
 COPY --from=builder /telegram-bot .
 
+# Копируем конфигурационные файлы
+COPY --from=builder /app/configs ./configs/
+
 # Копируем .env файл (будет переопределен volume mount при необходимости)
 COPY .env* ./
 

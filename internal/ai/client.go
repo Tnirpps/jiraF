@@ -3,9 +3,9 @@ package ai
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
-	"time"
+
+	"github.com/user/telegram-bot/internal/httpclient"
 )
 
 // Client defines the interface for interacting with AI models
@@ -25,18 +25,32 @@ type AnalyzedTask struct {
 
 // HuggingFaceClient is the implementation for AI analysis
 type HuggingFaceClient struct {
-	apiToken   string
-	httpClient *http.Client
+	httpClient *httpclient.Client
 }
 
 // NewClient creates a new AI client
-func NewClient(apiToken string) Client {
-	return &HuggingFaceClient{
-		apiToken: apiToken,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+func NewClient() (Client, error) {
+	// Load configuration from YAML file
+	configs, err := httpclient.LoadConfig("configs/api.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load API configuration: %w", err)
 	}
+
+	// Get HuggingFace client configuration
+	clientConfig, err := configs.GetClientConfig("huggingface")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get HuggingFace client configuration: %w", err)
+	}
+
+	// Create the HTTP client
+	client, err := clientConfig.CreateClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
+	}
+
+	return &HuggingFaceClient{
+		httpClient: client,
+	}, nil
 }
 
 // AnalyzeDiscussion analyzes messages using AI
@@ -50,25 +64,46 @@ func (c *HuggingFaceClient) AnalyzeDiscussion(ctx context.Context, messages []st
 	// For now, always use smart analysis
 	// If we get a real Hugging Face token, we can uncomment the API call below
 	/*
-	if c.apiToken != "" && c.apiToken != "your_huggingface_token_here" {
-		return c.callHuggingFaceAPI(ctx, discussionText)
-	}
+		if c.apiToken != "" && c.apiToken != "your_huggingface_token_here" {
+			return c.callHuggingFaceAPI(ctx, discussionText)
+		}
 	*/
 
 	return c.smartAnalysis(discussionText), nil
 }
 
-// callHuggingFaceAPI can be implemented later for real AI calls
+// callHuggingFaceAPI implements real AI calls via Hugging Face API
 func (c *HuggingFaceClient) callHuggingFaceAPI(ctx context.Context, text string) (*AnalyzedTask, error) {
-	// Placeholder for future Hugging Face API implementation
-	// We'll implement this when we have a real API token
+	// This is a placeholder for the actual API call implementation
+	// When we have a real Hugging Face endpoint, we'd do something like:
+	/*
+		type HuggingFaceRequest struct {
+			Text string `json:"text"`
+		}
+
+		type HuggingFaceResponse struct {
+			// Fields matching the API response
+		}
+
+		request := HuggingFaceRequest{Text: text}
+		var response HuggingFaceResponse
+
+		err := c.httpClient.Post(ctx, "models/some-model/analyze", request, &response)
+		if err != nil {
+			return nil, fmt.Errorf("error calling HuggingFace API: %w", err)
+		}
+
+		// Process response and convert to AnalyzedTask
+	*/
+
+	// For now, just use the local analysis
 	return c.smartAnalysis(text), nil
 }
 
 // smartAnalysis provides intelligent task creation
 func (c *HuggingFaceClient) smartAnalysis(text string) *AnalyzedTask {
 	lines := strings.Split(text, "\n")
-	
+
 	// Фильтруем только обычные сообщения (без команд)
 	var cleanMessages []string
 	for _, line := range lines {
@@ -77,7 +112,7 @@ func (c *HuggingFaceClient) smartAnalysis(text string) *AnalyzedTask {
 			cleanMessages = append(cleanMessages, line)
 		}
 	}
-	
+
 	if len(cleanMessages) == 0 {
 		return &AnalyzedTask{
 			Title:        "Задача из обсуждения",
@@ -91,7 +126,7 @@ func (c *HuggingFaceClient) smartAnalysis(text string) *AnalyzedTask {
 
 	// Анализируем содержание
 	fullText := strings.ToLower(strings.Join(cleanMessages, " "))
-	
+
 	task := &AnalyzedTask{
 		Title:        c.generateSmartTitle(cleanMessages),
 		Description:  c.generateSmartDescription(cleanMessages),
@@ -174,7 +209,7 @@ func (c *HuggingFaceClient) generateSmartDescription(messages []string) string {
 			description.WriteString(fmt.Sprintf("• %s\n", msg))
 			addedCount++
 		}
-		
+
 		// Ограничиваем длину
 		if description.Len() > 400 && i > 0 {
 			description.WriteString("• ...\n")
@@ -207,7 +242,7 @@ func (c *HuggingFaceClient) isGreeting(text string) bool {
 		"привет", "здравствуйте", "добрый день", "доброе утро", "добрый вечер",
 		"hi", "hello", "hey",
 	}
-	
+
 	for _, greeting := range greetings {
 		if strings.Contains(lower, greeting) {
 			return true
@@ -242,9 +277,9 @@ func (c *HuggingFaceClient) extractDueDate(text string) string {
 }
 
 func (c *HuggingFaceClient) extractPriority(text string) int {
-	if strings.Contains(text, "срочно") || strings.Contains(text, "urgent") || 
-	   strings.Contains(text, "важно") || strings.Contains(text, "important") ||
-	   strings.Contains(text, "уволят") {
+	if strings.Contains(text, "срочно") || strings.Contains(text, "urgent") ||
+		strings.Contains(text, "важно") || strings.Contains(text, "important") ||
+		strings.Contains(text, "уволят") {
 		return 4
 	}
 	if strings.Contains(text, "высокий") || strings.Contains(text, "high") {
@@ -258,7 +293,7 @@ func (c *HuggingFaceClient) extractPriority(text string) int {
 
 func (c *HuggingFaceClient) extractLabels(text string) []string {
 	labels := []string{}
-	
+
 	if strings.Contains(text, "отчет") || strings.Contains(text, "report") {
 		labels = append(labels, "отчет")
 	}
@@ -286,6 +321,6 @@ func (c *HuggingFaceClient) extractLabels(text string) []string {
 	if strings.Contains(text, "клиент") || strings.Contains(text, "client") {
 		labels = append(labels, "клиент")
 	}
-	
+
 	return labels
 }

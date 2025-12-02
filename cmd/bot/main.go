@@ -24,11 +24,6 @@ func main() {
 		log.Fatal("TELEGRAM_BOT_TOKEN is required")
 	}
 
-	todoistToken := os.Getenv("TODOIST_API_TOKEN")
-	if todoistToken == "" {
-		log.Fatal("TODOIST_API_TOKEN is required")
-	}
-
 	dbManager, err := db.NewManager()
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
@@ -45,7 +40,7 @@ func main() {
 	// Assert that our db.Manager implements the commands.DBManager interface
 	var _ commands.DBManager = dbManager
 
-	b, err := bot.New(telegramToken, todoistToken, dbManager)
+	b, err := bot.New(telegramToken, dbManager)
 	if err != nil {
 		log.Fatalf("Error creating bot: %v", err)
 	}

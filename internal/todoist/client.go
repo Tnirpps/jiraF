@@ -1,18 +1,13 @@
 package todoist
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"time"
-)
 
-const (
-	// BaseURL is the base URL for Todoist API v2
-	BaseURL = "https://api.todoist.com/rest/v2"
+	"github.com/user/telegram-bot/internal/httpclient"
 )
 
 // TaskRequest represents the request structure for creating a Todoist task
@@ -110,16 +105,42 @@ type Client interface {
 
 // TodoistClient is the implementation of the Client interface
 type TodoistClient struct {
-	apiToken   string
-	httpClient *http.Client
+	httpClient *httpclient.Client
 }
 
 // NewClient creates a new Todoist client
-func NewClient(apiToken string) Client {
-	return &TodoistClient{
-		apiToken:   apiToken,
-		httpClient: http.DefaultClient,
+func NewClient() (Client, error) {
+	// Load configuration from YAML file
+	configs, err := httpclient.LoadConfig("configs/api.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load API configuration: %w", err)
 	}
+
+	// Get Todoist client configuration
+	clientConfig, err := configs.GetClientConfig("todoist")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Todoist client configuration: %w", err)
+	}
+
+	// Create the HTTP client
+	client, err := clientConfig.CreateClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
+	}
+
+	// Add request ID middleware for idempotent operations
+	client.WithMiddleware(func(next httpclient.Handler) httpclient.Handler {
+		return func(ctx context.Context, req *http.Request) (*http.Response, error) {
+			if req.Method == http.MethodPost || req.Method == http.MethodPut {
+				req.Header.Set("X-Request-Id", fmt.Sprintf("req-%d", time.Now().UnixNano()))
+			}
+			return next(ctx, req)
+		}
+	})
+
+	return &TodoistClient{
+		httpClient: client,
+	}, nil
 }
 
 // CreateTask creates a new task in Todoist
@@ -128,37 +149,10 @@ func (c *TodoistClient) CreateTask(ctx context.Context, task *TaskRequest) (*Tas
 		return nil, fmt.Errorf("task content is required")
 	}
 
-	reqBody, err := json.Marshal(task)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling task: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, BaseURL+"/tasks", bytes.NewBuffer(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	req.Header.Set("X-Request-Id", fmt.Sprintf("task-%d", time.Now().UnixNano()))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error sending request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var errResp map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil {
-			return nil, fmt.Errorf("API error (status %d): %v", resp.StatusCode, errResp)
-		}
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
-	}
-
 	var createdTask TaskResponse
-	if err := json.NewDecoder(resp.Body).Decode(&createdTask); err != nil {
-		return nil, fmt.Errorf("error decoding response: %w", err)
+	err := c.httpClient.Post(ctx, "tasks", task, &createdTask)
+	if err != nil {
+		return nil, fmt.Errorf("error creating task: %w", err)
 	}
 
 	log.Printf("Created Todoist task: %s with ID %s", createdTask.Content, createdTask.ID)
@@ -167,35 +161,15 @@ func (c *TodoistClient) CreateTask(ctx context.Context, task *TaskRequest) (*Tas
 
 // GetTasks returns active tasks, optionally filtered by project ID
 func (c *TodoistClient) GetTasks(ctx context.Context, projectID string) ([]*TaskResponse, error) {
-	url := BaseURL + "/tasks"
+	path := "tasks"
 	if projectID != "" {
-		url += "?project_id=" + projectID
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error sending request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var errResp map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil {
-			return nil, fmt.Errorf("API error (status %d): %v", resp.StatusCode, errResp)
-		}
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+		path += "?project_id=" + projectID
 	}
 
 	var tasks []*TaskResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tasks); err != nil {
-		return nil, fmt.Errorf("error decoding response: %w", err)
+	err := c.httpClient.Get(ctx, path, &tasks)
+	if err != nil {
+		return nil, fmt.Errorf("error getting tasks: %w", err)
 	}
 
 	return tasks, nil
@@ -203,30 +177,14 @@ func (c *TodoistClient) GetTasks(ctx context.Context, projectID string) ([]*Task
 
 // GetTask returns a single task by ID
 func (c *TodoistClient) GetTask(ctx context.Context, taskID string) (*TaskResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/tasks/%s", BaseURL, taskID), nil)
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error sending request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var errResp map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil {
-			return nil, fmt.Errorf("API error (status %d): %v", resp.StatusCode, errResp)
-		}
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
-	}
-
 	var task TaskResponse
-	if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
-		return nil, fmt.Errorf("error decoding response: %w", err)
+	err := c.httpClient.Get(ctx, fmt.Sprintf("tasks/%s", taskID), &task)
+	if err != nil {
+		// Check if it's a 404 error
+		if httpclient.IsNotFound(err) {
+			return nil, fmt.Errorf("task not found: %s", taskID)
+		}
+		return nil, fmt.Errorf("error getting task: %w", err)
 	}
 
 	return &task, nil
@@ -234,37 +192,10 @@ func (c *TodoistClient) GetTask(ctx context.Context, taskID string) (*TaskRespon
 
 // UpdateTask updates an existing task
 func (c *TodoistClient) UpdateTask(ctx context.Context, taskID string, task *TaskRequest) (*TaskResponse, error) {
-	reqBody, err := json.Marshal(task)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling task: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/tasks/%s", BaseURL, taskID), bytes.NewBuffer(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	req.Header.Set("X-Request-Id", fmt.Sprintf("update-%d", time.Now().UnixNano()))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error sending request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var errResp map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil {
-			return nil, fmt.Errorf("API error (status %d): %v", resp.StatusCode, errResp)
-		}
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
-	}
-
 	var updatedTask TaskResponse
-	if err := json.NewDecoder(resp.Body).Decode(&updatedTask); err != nil {
-		return nil, fmt.Errorf("error decoding response: %w", err)
+	err := c.httpClient.Post(ctx, fmt.Sprintf("tasks/%s", taskID), task, &updatedTask)
+	if err != nil {
+		return nil, fmt.Errorf("error updating task: %w", err)
 	}
 
 	log.Printf("Updated Todoist task: %s with ID %s", updatedTask.Content, updatedTask.ID)
@@ -273,26 +204,9 @@ func (c *TodoistClient) UpdateTask(ctx context.Context, taskID string, task *Tas
 
 // CompleteTask marks a task as complete
 func (c *TodoistClient) CompleteTask(ctx context.Context, taskID string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/tasks/%s/close", BaseURL, taskID), nil)
+	err := c.httpClient.Post(ctx, fmt.Sprintf("tasks/%s/close", taskID), nil, nil)
 	if err != nil {
-		return fmt.Errorf("error creating request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	req.Header.Set("X-Request-Id", fmt.Sprintf("close-%d", time.Now().UnixNano()))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("error sending request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		var errResp map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil {
-			return fmt.Errorf("API error (status %d): %v", resp.StatusCode, errResp)
-		}
-		return fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+		return fmt.Errorf("error completing task: %w", err)
 	}
 
 	log.Printf("Marked Todoist task %s as complete", taskID)
@@ -301,25 +215,9 @@ func (c *TodoistClient) CompleteTask(ctx context.Context, taskID string) error {
 
 // DeleteTask permanently deletes a task
 func (c *TodoistClient) DeleteTask(ctx context.Context, taskID string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, fmt.Sprintf("%s/tasks/%s", BaseURL, taskID), nil)
+	err := c.httpClient.Delete(ctx, fmt.Sprintf("tasks/%s", taskID))
 	if err != nil {
-		return fmt.Errorf("error creating request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("error sending request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		var errResp map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil {
-			return fmt.Errorf("API error (status %d): %v", resp.StatusCode, errResp)
-		}
-		return fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+		return fmt.Errorf("error deleting task: %w", err)
 	}
 
 	log.Printf("Deleted Todoist task %s", taskID)
@@ -328,30 +226,10 @@ func (c *TodoistClient) DeleteTask(ctx context.Context, taskID string) error {
 
 // GetProjects returns the list of projects
 func (c *TodoistClient) GetProjects(ctx context.Context) ([]Project, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, BaseURL+"/projects", nil)
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error sending request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var errResp map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil {
-			return nil, fmt.Errorf("API error (status %d): %v", resp.StatusCode, errResp)
-		}
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
-	}
-
 	var projects []Project
-	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
-		return nil, fmt.Errorf("error decoding response: %w", err)
+	err := c.httpClient.Get(ctx, "projects", &projects)
+	if err != nil {
+		return nil, fmt.Errorf("error getting projects: %w", err)
 	}
 
 	return projects, nil

@@ -1,0 +1,13 @@
+clients:
+  todoist:
+    base_url: "{{.BaseURL}}" # Will be replaced in tests with the test server URL
+    timeout: "30s"
+    retry_count: 1
+    retry_wait_time: "10ms"
+    max_retry_wait_time: "100ms"
+    enable_logging: true
+    authorization:
+      type: "Bearer"
+      token_env_var: "TEST_TOKEN"
+    headers:
+      Content-Type: "application/json"
