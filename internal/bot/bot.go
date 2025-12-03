@@ -18,8 +18,13 @@ type Bot struct {
 	commandRegistry *commands.Registry
 	dbManager       commands.DBManager
 	callbackHandler *commands.CallbackHandler
+	aiClient        ai.Client
 	wg              sync.WaitGroup
 	stopCh          chan struct{}
+
+	// Track edit sessions
+	editSessions map[int64]string // map[botMessageID]sessionID
+	editMutex    sync.RWMutex
 }
 
 func New(telegramToken string, dbManager commands.DBManager) (*Bot, error) {
@@ -92,7 +97,9 @@ func New(telegramToken string, dbManager commands.DBManager) (*Bot, error) {
 		commandRegistry: registry,
 		dbManager:       dbManager,
 		callbackHandler: callbackHandler,
+		aiClient:        aiClient,
 		stopCh:          make(chan struct{}),
+		editSessions:    make(map[int64]string),
 	}, nil
 }
 
@@ -179,9 +186,23 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 			log.Printf("Error deleting message: %v", err)
 		}
 
-		// For edit action, don't send a new message - we'll let the handler implement that later
-		if callbackType != commands.CallbackEdit {
-			// Send a confirmation message
+		// Check if we need to send the edit message
+		if callbackResp.ResponseMessage != nil {
+			// Send the message from the callback
+			sent, err := b.api.Send(callbackResp.ResponseMessage)
+			if err != nil {
+				log.Printf("Error sending callback response message: %v", err)
+			} else if callbackResp.WaitingForReply && callbackResp.SessionID != "" {
+				// If this is an edit message waiting for reply, track it
+				b.editMutex.Lock()
+				b.editSessions[int64(sent.MessageID)] = callbackResp.SessionID
+				b.editMutex.Unlock()
+
+				log.Printf("Added edit session for message ID %d, session %s",
+					sent.MessageID, callbackResp.SessionID)
+			}
+		} else if callbackType != commands.CallbackEdit {
+			// Send a confirmation message for non-edit callbacks
 			var text string
 			if callbackType == commands.CallbackConfirm {
 				text = "✅ Action confirmed (placeholder - will create task in next phase)"
@@ -204,6 +225,22 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 // handleMessage processes a single message from a user
 func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	log.Printf("[%s] %s", message.From.UserName, message.Text)
+
+	// Check if this is a reply to an edit request
+	if message.ReplyToMessage != nil && !message.IsCommand() {
+		replyToID := int64(message.ReplyToMessage.MessageID)
+
+		// Check if this is a reply to our edit instruction message
+		b.editMutex.RLock()
+		sessionID, isEditReply := b.editSessions[replyToID]
+		b.editMutex.RUnlock()
+
+		if isEditReply {
+			log.Printf("Got reply to edit request for session %s", sessionID)
+			b.handleEditReply(message, sessionID)
+			return
+		}
+	}
 
 	// Save non-command messages during active sessions
 	if message.Text != "" && !message.IsCommand() {
@@ -259,5 +296,74 @@ func (b *Bot) sendResponse(msgConfig *tgbotapi.MessageConfig) {
 // sendMessage simplified method for sending text messages
 func (b *Bot) sendMessage(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
+	b.sendResponse(&msg)
+}
+
+// handleEditReply processes a user's reply to an edit request message
+func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
+	// Context would be used in real implementation with database and API calls
+	// ctx := context.Background()
+
+	// Log the edit request
+	log.Printf("Processing edit request for session %s: %s", sessionID, message.Text)
+
+	// Clean up the tracking
+	b.editMutex.Lock()
+	delete(b.editSessions, int64(message.ReplyToMessage.MessageID))
+	b.editMutex.Unlock()
+
+	// In a real implementation, we would:
+	// 1. Get the draft task from the database
+	// 2. Call the AI client's EditTask method
+	// 3. Update the task in the database
+	// 4. Show a new preview to the user
+
+	// PLACEHOLDER: Get draft task from database
+	// Example:
+	// sessionIDInt, _ := strconv.Atoi(sessionID)
+	// draftTask, err := b.dbManager.GetDraftTask(ctx, sessionIDInt)
+	// if err != nil {
+	//     log.Printf("Error retrieving draft task: %v", err)
+	//     b.sendMessage(message.Chat.ID, "❌ Error retrieving task details")
+	//     return
+	// }
+
+	// PLACEHOLDER: In a real implementation, we would have the original task from the database
+	// and pass it to the AI client for editing
+
+	// PLACEHOLDER: Call AI service to edit the task based on feedback
+	log.Printf("Would call AI client to edit task with feedback: %s", message.Text)
+
+	// For demonstration, we're not actually calling the AI client:
+	// Original task would come from database
+	// editedTask, err := b.aiClient.EditTask(ctx, originalTask, message.Text)
+
+	// Simulating edited task for demonstration (as if the AI had processed the feedback)
+	editedTask := &ai.AnalyzedTask{
+		Title:        "Updated task title",
+		Description:  "Updated task description based on feedback",
+		DueDate:      "friday",
+		Priority:     2,
+		PriorityText: "Medium",
+		Labels:       []string{"updated"},
+	}
+
+	// Send back a confirmation message with the changes
+	responseText := fmt.Sprintf("✅ *Task Updated!*\n\n"+
+		"New details:\n"+
+		"*Title:* %s\n"+
+		"*Description:* %s\n"+
+		"*Due:* %s\n"+
+		"*Priority:* %s\n"+
+		"*Labels:* %s\n\n"+
+		"In a real implementation, this would use the AI to process your feedback.",
+		editedTask.Title,
+		editedTask.Description,
+		editedTask.DueDate,
+		editedTask.PriorityText,
+		strings.Join(editedTask.Labels, ", "))
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, responseText)
+	msg.ParseMode = "Markdown"
 	b.sendResponse(&msg)
 }

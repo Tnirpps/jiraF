@@ -27,8 +27,11 @@ const CallbackDataSeparator = ":"
 
 // CallbackResponse contains the response data for a callback query
 type CallbackResponse struct {
-	CallbackConfig *tgbotapi.CallbackConfig
-	IsOwner        bool
+	CallbackConfig  *tgbotapi.CallbackConfig
+	IsOwner         bool
+	ResponseMessage *tgbotapi.MessageConfig // Message to send to the user
+	SessionID       string                  // Session ID for context
+	WaitingForReply bool                    // Indicates if we're waiting for a reply
 }
 
 // CallbackHandler processes callback queries from buttons
@@ -158,20 +161,35 @@ func (h *CallbackHandler) handleEditCallback(callback *tgbotapi.CallbackQuery, s
 		}
 	}
 
-	// PLACEHOLDER: This will be implemented in the next phase
-	// Will prompt user for edit instructions and apply them to the draft
-	log.Printf("PLACEHOLDER: Editing task from session %s", sessionIDStr)
+	log.Printf("Handling edit task request for session %s", sessionIDStr)
 
-	// In the next phase, this will:
-	// 1. Ask the user for edit instructions
-	// 2. Send them to the ML service
-	// 3. Update the draft with the changes
-	// 4. Show a new preview
+	// Send a message asking for edit instructions
+	chatID := callback.Message.Chat.ID
 
-	callbackCfg := tgbotapi.NewCallback(callback.ID, "✏️ Got it! This will allow editing in the next phase.")
+	// Create the message asking for edit instructions
+	messageText := "✏️ *Editing task*\n\nPlease reply to this message with your edit instructions.\n\n" +
+		"Examples:\n" +
+		"• \"Change title to: Fix login bug\"\n" +
+		"• \"Set priority to high\"\n" +
+		"• \"Change due date to Friday\"\n" +
+		"• \"Add label: frontend\""
+
+	msg := tgbotapi.NewMessage(chatID, messageText)
+	msg.ParseMode = "Markdown"
+
+	// Create acknowledgment for the callback
+	callbackCfg := tgbotapi.NewCallback(callback.ID, "✏️ Please reply to my next message with your edit instructions")
+
+	// In a real implementation, we would mark in the database that we're waiting for a reply for this session
+	// Something like: h.dbManager.SetEditMode(ctx, sessionID, true)
+
+	// Return both the callback acknowledgment and the message to send
 	return &CallbackResponse{
-		CallbackConfig: &callbackCfg,
-		IsOwner:        true,
+		CallbackConfig:  &callbackCfg,
+		IsOwner:         true,
+		ResponseMessage: &msg,
+		SessionID:       sessionIDStr,
+		WaitingForReply: true,
 	}
 }
 
