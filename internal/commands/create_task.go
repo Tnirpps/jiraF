@@ -99,13 +99,18 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 		}
 	}
 
-	// Analyze with AI
+	// Analyze with AI using our structured prompt
+	log.Printf("Calling AI client to analyze discussion with %d messages", len(messageTexts))
+
 	analyzedTask, err := c.aiClient.AnalyzeDiscussion(ctx, messageTexts)
 	if err != nil {
 		log.Printf("AI analysis failed: %v", err)
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("❌ AI analysis failed: %v", err))
 		return &msg
 	}
+
+	log.Printf("AI analysis successful: Title: %s, Priority: %d, Due: %s",
+		analyzedTask.Title, analyzedTask.Priority, analyzedTask.DueDate)
 
 	// Extract assignee from messages
 	assigneeNote := c.extractAssignee(strings.Join(messageTexts, " "))

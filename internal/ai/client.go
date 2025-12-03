@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/user/telegram-bot/internal/httpclient"
@@ -11,6 +12,7 @@ import (
 // Client defines the interface for interacting with AI models
 type Client interface {
 	AnalyzeDiscussion(ctx context.Context, messages []string) (*AnalyzedTask, error)
+	EditTask(ctx context.Context, task *AnalyzedTask, userFeedback string) (*AnalyzedTask, error)
 }
 
 // AnalyzedTask represents the structured task from AI analysis
@@ -23,9 +25,11 @@ type AnalyzedTask struct {
 	Labels       []string `json:"labels,omitempty"`
 }
 
-// HuggingFaceClient is the implementation for AI analysis
-type HuggingFaceClient struct {
-	httpClient *httpclient.Client
+// AIClient is the implementation for AI analysis
+type AIClient struct {
+	httpClient       *httpclient.Client
+	createTaskPrompt string
+	editTaskPrompt   string
 }
 
 // NewClient creates a new AI client
@@ -36,10 +40,10 @@ func NewClient() (Client, error) {
 		return nil, fmt.Errorf("failed to load API configuration: %w", err)
 	}
 
-	// Get HuggingFace client configuration
-	clientConfig, err := configs.GetClientConfig("huggingface")
+	// Get client configuration
+	clientConfig, err := configs.GetClientConfig("ai_service")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get HuggingFace client configuration: %w", err)
+		return nil, fmt.Errorf("failed to get AI client configuration: %w", err)
 	}
 
 	// Create the HTTP client
@@ -48,279 +52,203 @@ func NewClient() (Client, error) {
 		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
 
-	return &HuggingFaceClient{
-		httpClient: client,
+	// Prompt for creating a task from discussion
+	createTaskPrompt := `
+	Analyze this discussion and extract task information:
+	- Extract a concise, descriptive title
+	- Generate a comprehensive description
+	- Identify any due date mentioned
+	- Determine priority (1=Normal, 2=Medium, 3=High, 4=Urgent)
+	- Extract relevant labels/tags
+
+	Discussion:
+	%s
+	`
+
+	// Prompt for editing a task based on user feedback
+	editTaskPrompt := `
+	The user wants to edit this task based on their feedback.
+	Modify only the fields mentioned in the feedback, keeping all other fields the same.
+
+	Current task:
+	Title: %s
+	Description: %s
+	Due Date: %s
+	Priority: %s
+	Labels: %s
+
+	User feedback:
+	%s
+
+	Return the updated task with all fields.
+	`
+
+	return &AIClient{
+		httpClient:       client,
+		createTaskPrompt: createTaskPrompt,
+		editTaskPrompt:   editTaskPrompt,
 	}, nil
 }
 
-// AnalyzeDiscussion analyzes messages using AI
-func (c *HuggingFaceClient) AnalyzeDiscussion(ctx context.Context, messages []string) (*AnalyzedTask, error) {
+// AnalyzeDiscussion analyzes messages using AI to extract task information
+func (c *AIClient) AnalyzeDiscussion(ctx context.Context, messages []string) (*AnalyzedTask, error) {
 	if len(messages) == 0 {
 		return nil, fmt.Errorf("no messages to analyze")
 	}
 
+	// Join all messages into a single text
 	discussionText := strings.Join(messages, "\n")
 
-	// For now, always use smart analysis
-	// If we get a real Hugging Face token, we can uncomment the API call below
-	/*
-		if c.apiToken != "" && c.apiToken != "your_huggingface_token_here" {
-			return c.callHuggingFaceAPI(ctx, discussionText)
-		}
-	*/
+	// Format the prompt with our template for task creation
+	prompt := fmt.Sprintf(c.createTaskPrompt, discussionText)
 
-	return c.smartAnalysis(discussionText), nil
+	// Log the prompt for debugging purposes
+	log.Printf("AI Prompt generated (not used in placeholder implementation): %s", prompt)
+
+	// In a production environment, this would call the real AI API:
+	// return c.callAIAPI(ctx, prompt)
+
+	// For this implementation, we'll return a placeholder task
+	// but we're keeping the structure in place for real API integration
+	return c.generatePlaceholderTask(discussionText), nil
 }
 
-// callHuggingFaceAPI implements real AI calls via Hugging Face API
-func (c *HuggingFaceClient) callHuggingFaceAPI(ctx context.Context, text string) (*AnalyzedTask, error) {
-	// This is a placeholder for the actual API call implementation
-	// When we have a real Hugging Face endpoint, we'd do something like:
-	/*
-		type HuggingFaceRequest struct {
-			Text string `json:"text"`
-		}
+// EditTask edits an existing task based on user feedback
+func (c *AIClient) EditTask(ctx context.Context, task *AnalyzedTask, userFeedback string) (*AnalyzedTask, error) {
+	if task == nil {
+		return nil, fmt.Errorf("no task to edit")
+	}
 
-		type HuggingFaceResponse struct {
-			// Fields matching the API response
-		}
+	if userFeedback == "" {
+		return nil, fmt.Errorf("no feedback provided for editing")
+	}
 
-		request := HuggingFaceRequest{Text: text}
-		var response HuggingFaceResponse
+	// Format labels for prompt in a real implementation
+	// This would be used in the prompt like:
+	// labels := strings.Join(task.Labels, ", ")
 
-		err := c.httpClient.Post(ctx, "models/some-model/analyze", request, &response)
-		if err != nil {
-			return nil, fmt.Errorf("error calling HuggingFace API: %w", err)
-		}
+	// Format the prompt with task details and user feedback
+	// In a real implementation, this would call the AI API
+	// For now, return a modified task based on simple rules
 
-		// Process response and convert to AnalyzedTask
-	*/
-
-	// For now, just use the local analysis
-	return c.smartAnalysis(text), nil
+	// STUB: This is where we would make the real API call
+	// Return a modified task as a placeholder
+	return c.generatePlaceholderEditedTask(task, userFeedback), nil
 }
 
-// smartAnalysis provides intelligent task creation
-func (c *HuggingFaceClient) smartAnalysis(text string) *AnalyzedTask {
+// generatePlaceholderTask creates a simple placeholder task for new task creation
+// This would be replaced with real AI API call implementation
+func (c *AIClient) generatePlaceholderTask(text string) *AnalyzedTask {
+	// Create a basic placeholder task with minimal processing
+	// In a real implementation, this would parse the AI response
+
+	// Extract a simple title (first line or truncated text)
+	title := "Task from discussion"
 	lines := strings.Split(text, "\n")
-
-	// Фильтруем только обычные сообщения (без команд)
-	var cleanMessages []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.HasPrefix(line, "/") {
-			cleanMessages = append(cleanMessages, line)
-		}
-	}
-
-	if len(cleanMessages) == 0 {
-		return &AnalyzedTask{
-			Title:        "Задача из обсуждения",
-			Description:  text,
-			DueDate:      "",
-			Priority:     1,
-			PriorityText: "Обычный",
-			Labels:       []string{},
-		}
-	}
-
-	// Анализируем содержание
-	fullText := strings.ToLower(strings.Join(cleanMessages, " "))
-
-	task := &AnalyzedTask{
-		Title:        c.generateSmartTitle(cleanMessages),
-		Description:  c.generateSmartDescription(cleanMessages),
-		DueDate:      c.extractDueDate(fullText),
-		Priority:     c.extractPriority(fullText),
-		PriorityText: "Обычный",
-		Labels:       c.extractLabels(fullText),
-	}
-
-	// Set priority text
-	switch task.Priority {
-	case 2:
-		task.PriorityText = "Средний"
-	case 3:
-		task.PriorityText = "Высокий"
-	case 4:
-		task.PriorityText = "Срочный"
-	}
-
-	return task
-}
-
-// generateSmartTitle создает умный заголовок на основе обсуждения
-func (c *HuggingFaceClient) generateSmartTitle(messages []string) string {
-	if len(messages) == 0 {
-		return "Задача из обсуждения"
-	}
-
-	// Ищем самое информативное сообщение для заголовка
-	for _, msg := range messages {
-		msg = strings.TrimSpace(msg)
-		if len(msg) > 10 {
-			// Убираем приветствия и короткие сообщения
-			if !c.isGreeting(msg) && len(msg) > 10 {
-				if len(msg) > 50 {
-					return msg[:47] + "..."
-				}
-				return msg
-			}
-		}
-	}
-
-	// Если не нашли хороший заголовок, берем первое не-приветствие
-	for _, msg := range messages {
-		msg = strings.TrimSpace(msg)
-		if !c.isGreeting(msg) && msg != "" {
-			if len(msg) > 50 {
-				return msg[:47] + "..."
-			}
-			return msg
-		}
-	}
-
-	// Последний вариант - первое сообщение
-	if len(messages) > 0 {
-		title := messages[0]
+	if len(lines) > 0 && len(lines[0]) > 0 {
+		title = lines[0]
 		if len(title) > 50 {
-			return title[:47] + "..."
-		}
-		return title
-	}
-
-	return "Задача из обсуждения"
-}
-
-// generateSmartDescription создает структурированное описание
-func (c *HuggingFaceClient) generateSmartDescription(messages []string) string {
-	if len(messages) == 0 {
-		return "Нет деталей задачи"
-	}
-
-	var description strings.Builder
-	description.WriteString("Детали из обсуждения:\n\n")
-
-	// Добавляем только значимые сообщения
-	addedCount := 0
-	for i, msg := range messages {
-		msg = strings.TrimSpace(msg)
-		if msg != "" && !c.isGreeting(msg) && !c.isShortMessage(msg) {
-			description.WriteString(fmt.Sprintf("• %s\n", msg))
-			addedCount++
-		}
-
-		// Ограничиваем длину
-		if description.Len() > 400 && i > 0 {
-			description.WriteString("• ...\n")
-			break
+			title = title[:47] + "..."
 		}
 	}
 
-	if addedCount == 0 {
-		// Если все сообщения короткие, показываем их все
-		for _, msg := range messages {
-			if msg != "" {
-				description.WriteString(fmt.Sprintf("• %s\n", msg))
-			}
+	return &AnalyzedTask{
+		Title:        title,
+		Description:  fmt.Sprintf("Discussion content:\n\n%s", text),
+		DueDate:      "",
+		Priority:     1,
+		PriorityText: "Normal",
+		Labels:       []string{},
+	}
+}
+
+// generatePlaceholderEditedTask creates a placeholder for edited task
+// This would be replaced with real AI API call implementation
+func (c *AIClient) generatePlaceholderEditedTask(task *AnalyzedTask, feedback string) *AnalyzedTask {
+	// For demonstration purposes, make simple changes based on feedback
+	// In a real implementation, this would be replaced with AI analysis
+
+	editedTask := &AnalyzedTask{
+		Title:        task.Title,
+		Description:  task.Description,
+		DueDate:      task.DueDate,
+		Priority:     task.Priority,
+		PriorityText: task.PriorityText,
+		Labels:       task.Labels,
+	}
+
+	// Very simple keyword-based changes (just for placeholder functionality)
+	lowerFeedback := strings.ToLower(feedback)
+
+	// Update title if requested
+	if strings.Contains(lowerFeedback, "change title") ||
+		strings.Contains(lowerFeedback, "rename") ||
+		strings.Contains(lowerFeedback, "изменить название") {
+		parts := strings.Split(feedback, ":")
+		if len(parts) > 1 {
+			editedTask.Title = strings.TrimSpace(parts[1])
 		}
 	}
 
-	// Обрезаем если слишком длинное
-	result := description.String()
-	if len(result) > 500 {
-		return result[:497] + "..."
+	// Update priority if requested
+	if strings.Contains(lowerFeedback, "high priority") ||
+		strings.Contains(lowerFeedback, "высокий приоритет") {
+		editedTask.Priority = 3
+		editedTask.PriorityText = "High"
+	} else if strings.Contains(lowerFeedback, "urgent") ||
+		strings.Contains(lowerFeedback, "срочно") {
+		editedTask.Priority = 4
+		editedTask.PriorityText = "Urgent"
 	}
 
-	return result
+	// Add placeholder for due date changes, etc.
+
+	return editedTask
 }
 
-// isGreeting проверяет, является ли сообщение приветствием
-func (c *HuggingFaceClient) isGreeting(text string) bool {
-	lower := strings.ToLower(text)
-	greetings := []string{
-		"привет", "здравствуйте", "добрый день", "доброе утро", "добрый вечер",
-		"hi", "hello", "hey",
+/*
+// Example of what a real API call implementation might look like
+func (c *AIClient) callAIAPI(ctx context.Context, prompt string) (*AnalyzedTask, error) {
+	type AIRequest struct {
+		Prompt string `json:"prompt"`
 	}
 
-	for _, greeting := range greetings {
-		if strings.Contains(lower, greeting) {
-			return true
-		}
+	type AIResponse struct {
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		DueDate     string   `json:"due_date"`
+		Priority    int      `json:"priority"`
+		Labels      []string `json:"labels"`
 	}
-	return false
+
+	// Prepare the request
+	request := AIRequest{Prompt: prompt}
+	var response AIResponse
+
+	// Make the API call
+	err := c.httpClient.Post(ctx, "analyze", request, &response)
+	if err != nil {
+		return nil, fmt.Errorf("error calling AI API: %w", err)
+	}
+
+	// Map the API response to our AnalyzedTask structure
+	priorityText := "Normal"
+	switch response.Priority {
+	case 2:
+		priorityText = "Medium"
+	case 3:
+		priorityText = "High"
+	case 4:
+		priorityText = "Urgent"
+	}
+
+	return &AnalyzedTask{
+		Title:        response.Title,
+		Description:  response.Description,
+		DueDate:      response.DueDate,
+		Priority:     response.Priority,
+		PriorityText: priorityText,
+		Labels:       response.Labels,
+	}, nil
 }
-
-// isShortMessage проверяет, является ли сообщение слишком коротким
-func (c *HuggingFaceClient) isShortMessage(text string) bool {
-	words := strings.Fields(text)
-	return len(words) <= 2
-}
-
-func (c *HuggingFaceClient) extractDueDate(text string) string {
-	if strings.Contains(text, "сегодня") || strings.Contains(text, "today") {
-		return "today"
-	}
-	if strings.Contains(text, "завтра") || strings.Contains(text, "tomorrow") {
-		return "tomorrow"
-	}
-	if strings.Contains(text, "понедельник") || strings.Contains(text, "monday") {
-		return "monday"
-	}
-	if strings.Contains(text, "пятница") || strings.Contains(text, "friday") {
-		return "friday"
-	}
-	if strings.Contains(text, "21 декабря") || strings.Contains(text, "декабря") {
-		return "2025-12-21"
-	}
-	return ""
-}
-
-func (c *HuggingFaceClient) extractPriority(text string) int {
-	if strings.Contains(text, "срочно") || strings.Contains(text, "urgent") ||
-		strings.Contains(text, "важно") || strings.Contains(text, "important") ||
-		strings.Contains(text, "уволят") {
-		return 4
-	}
-	if strings.Contains(text, "высокий") || strings.Contains(text, "high") {
-		return 3
-	}
-	if strings.Contains(text, "средний") || strings.Contains(text, "medium") {
-		return 2
-	}
-	return 1
-}
-
-func (c *HuggingFaceClient) extractLabels(text string) []string {
-	labels := []string{}
-
-	if strings.Contains(text, "отчет") || strings.Contains(text, "report") {
-		labels = append(labels, "отчет")
-	}
-	if strings.Contains(text, "презентация") || strings.Contains(text, "presentation") {
-		labels = append(labels, "презентация")
-	}
-	if strings.Contains(text, "срочно") {
-		labels = append(labels, "срочно")
-	}
-	if strings.Contains(text, "печенье") || strings.Contains(text, "cookies") {
-		labels = append(labels, "еда")
-	}
-	if strings.Contains(text, "проект") || strings.Contains(text, "project") {
-		labels = append(labels, "проект")
-	}
-	if strings.Contains(text, "баг") || strings.Contains(text, "bug") {
-		labels = append(labels, "баг")
-	}
-	if strings.Contains(text, "фича") || strings.Contains(text, "feature") {
-		labels = append(labels, "фича")
-	}
-	if strings.Contains(text, "встреча") || strings.Contains(text, "meeting") {
-		labels = append(labels, "встреча")
-	}
-	if strings.Contains(text, "клиент") || strings.Contains(text, "client") {
-		labels = append(labels, "клиент")
-	}
-
-	return labels
-}
+*/

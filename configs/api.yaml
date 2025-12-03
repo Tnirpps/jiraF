@@ -14,9 +14,9 @@ clients:
     headers:
       Content-Type: "application/json"
 
-  # HuggingFace API client configuration
-  huggingface:
-    base_url: "https://api.huggingface.co"
+  # AI service configuration
+  ai_service:
+    base_url: "https://api.example.com/ai"
     timeout: "60s"
     retry_count: 2
     retry_wait_time: "1s"

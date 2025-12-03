@@ -26,6 +26,14 @@ func (m *MockAIClient) AnalyzeDiscussion(ctx context.Context, messages []string)
 	return args.Get(0).(*ai.AnalyzedTask), args.Error(1)
 }
 
+func (m *MockAIClient) EditTask(ctx context.Context, task *ai.AnalyzedTask, userFeedback string) (*ai.AnalyzedTask, error) {
+	args := m.Called(ctx, task, userFeedback)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ai.AnalyzedTask), args.Error(1)
+}
+
 func TestCreateTaskCommand_Execute(t *testing.T) {
 	// Create mock dependencies
 	mockDB := new(MockDBManager)
