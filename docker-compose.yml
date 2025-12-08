@@ -24,9 +24,15 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: telegram-bot
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TODOIST_API_TOKEN=${TODOIST_API_TOKEN}
+      - YANDEX_API_KEY=${YANDEX_API_KEY}
+      - YANDEX_FOLDER_ID=${YANDEX_FOLDER_ID}
+      - DATABASE_URL=postgres://jiraf_user:jiraf_password@postgres:5432/jiraf_db?sslmode=disable
     volumes:
-      - ./.env:/app/.env  # Переопределяем .env если нужно
-      - ./internal/db/schema.sql:/app/internal/db/schema.sql  # Только схема БД
+      - ./configs:/app/configs
+      - ./internal/db:/app/internal/db 
     depends_on:
       postgres:
         condition: service_healthy

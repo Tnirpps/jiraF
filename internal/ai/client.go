@@ -2,9 +2,13 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/user/telegram-bot/internal/httpclient"
 )
@@ -25,14 +29,68 @@ type AnalyzedTask struct {
 	Labels       []string `json:"labels,omitempty"`
 }
 
-// AIClient is the implementation for AI analysis
+// YandexGPTRequest structure for YandexGPT API request
+type YandexGPTRequest struct {
+	ModelURI          string                  `json:"modelUri"`
+	CompletionOptions *CompletionOptions      `json:"completionOptions"`
+	Messages          []YandexGPTMessage      `json:"messages"`
+}
+
+// YandexGPTMessage structure for YandexGPT message
+type YandexGPTMessage struct {
+	Role string `json:"role"`
+	Text string `json:"text"`
+}
+
+// CompletionOptions completion options for YandexGPT
+type CompletionOptions struct {
+	Stream      bool    `json:"stream"`
+	Temperature float64 `json:"temperature"`
+	MaxTokens   int     `json:"maxTokens"`
+}
+
+// YandexGPTResponse structure for YandexGPT API response
+type YandexGPTResponse struct {
+	Result *GPTResult `json:"result"`
+}
+
+// GPTResult result of processing
+type GPTResult struct {
+	Alternatives []Alternative `json:"alternatives"`
+	Usage        Usage         `json:"usage"`
+	ModelVersion string        `json:"modelVersion"`
+}
+
+// Alternative alternative response
+type Alternative struct {
+	Message MessageContent `json:"message"`
+	Status  string         `json:"status"`
+}
+
+// MessageContent message content
+type MessageContent struct {
+	Role string `json:"role"`
+	Text string `json:"text"`
+}
+
+// Usage usage statistics
+type Usage struct {
+	InputTextTokens  int `json:"inputTextTokens"`
+	CompletionTokens int `json:"completionTokens"`
+	TotalTokens      int `json:"totalTokens"`
+}
+
+// AIClient is the implementation for AI analysis with YandexGPT
 type AIClient struct {
 	httpClient       *httpclient.Client
+	apiKey           string
+	folderID         string
+	modelURI         string
 	createTaskPrompt string
 	editTaskPrompt   string
 }
 
-// NewClient creates a new AI client
+// NewClient creates a new AI client for YandexGPT
 func NewClient() (Client, error) {
 	// Load configuration from YAML file
 	configs, err := httpclient.LoadConfig("configs/api.yaml")
@@ -41,9 +99,9 @@ func NewClient() (Client, error) {
 	}
 
 	// Get client configuration
-	clientConfig, err := configs.GetClientConfig("ai_service")
+	clientConfig, err := configs.GetClientConfig("yandex_gpt")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get AI client configuration: %w", err)
+		return nil, fmt.Errorf("failed to get YandexGPT client configuration: %w", err)
 	}
 
 	// Create the HTTP client
@@ -52,45 +110,117 @@ func NewClient() (Client, error) {
 		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
 
-	// Prompt for creating a task from discussion
-	createTaskPrompt := `
-	Analyze this discussion and extract task information:
-	- Extract a concise, descriptive title
-	- Generate a comprehensive description
-	- Identify any due date mentioned
-	- Determine priority (1=Normal, 2=Medium, 3=High, 4=Urgent)
-	- Extract relevant labels/tags
+	// Get API key from environment variable
+	apiKey := os.Getenv("YANDEX_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("YANDEX_API_KEY environment variable is required")
+	}
 
-	Discussion:
-	%s
-	`
+	// Get folder ID from environment variable
+	folderID := os.Getenv("YANDEX_FOLDER_ID")
+	if folderID == "" {
+		return nil, fmt.Errorf("YANDEX_FOLDER_ID environment variable is required")
+	}
 
-	// Prompt for editing a task based on user feedback
-	editTaskPrompt := `
-	The user wants to edit this task based on their feedback.
-	Modify only the fields mentioned in the feedback, keeping all other fields the same.
+	// Validate API key format
+	if len(apiKey) < 20 {
+		return nil, fmt.Errorf("YANDEX_API_KEY appears to be invalid (too short)")
+	}
 
-	Current task:
-	Title: %s
-	Description: %s
-	Due Date: %s
-	Priority: %s
-	Labels: %s
+	// Model URI for YandexGPT
+	modelURI := fmt.Sprintf("gpt://%s/yandexgpt-lite", folderID)
 
-	User feedback:
-	%s
+	// Add authorization header to the client
+	client.WithMiddleware(func(next httpclient.Handler) httpclient.Handler {
+		return func(ctx context.Context, req *http.Request) (*http.Response, error) {
+			req.Header.Set("Authorization", fmt.Sprintf("Api-Key %s", apiKey))
+			req.Header.Set("Content-Type", "application/json")
+			return next(ctx, req)
+		}
+	})
 
-	Return the updated task with all fields.
-	`
+	// Test connection to API
+	testCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Test request to verify API connection
+	testRequest := YandexGPTRequest{
+		ModelURI: modelURI,
+		CompletionOptions: &CompletionOptions{
+			Stream:      false,
+			Temperature: 0.1,
+			MaxTokens:   10,
+		},
+		Messages: []YandexGPTMessage{
+			{
+				Role: "user",
+				Text: "Hello, reply with one word: ready",
+			},
+		},
+	}
+
+	// Make test API call
+	var testResponse YandexGPTResponse
+	err = client.Post(testCtx, "completion", testRequest, &testResponse)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to YandexGPT API: %w", err)
+	}
+
+	// System prompt for creating a task from discussion
+	createTaskPrompt := `You are a task management assistant. Analyze the dialog and extract information for a Todoist task.
+
+Response requirements:
+1. Response must be in JSON format
+2. All fields are required
+3. Use Russian language for fields
+
+JSON format:
+{
+  "title": "Brief, informative task title (max 100 characters)",
+  "description": "Detailed task description, including all important details from the discussion",
+  "due_date": "Due date in YYYY-MM-DD format or relative format (today, tomorrow, mon, tue, etc.). If no due date mentioned, leave empty string",
+  "priority": "Priority from 1 to 4, where 1 is normal, 4 is urgent",
+  "priority_text": "Text description of priority (Normal, Medium, High, Urgent)",
+  "labels": ["list", "of", "relevant", "tags"]
+}
+
+Rules:
+- Title should be specific and informative
+- Description should include all technical details mentioned in the discussion
+- For priority: use 4 only for truly urgent tasks
+- Tags should be relevant to context (e.g.: frontend, backend, bug, feature, meeting)
+
+Dialog to analyze:
+`
+
+	// System prompt for editing a task based on user feedback
+	editTaskPrompt := `You are a task management assistant. Edit an existing task based on user feedback.
+
+Requirements:
+1. Change only the fields mentioned in the feedback
+2. Keep all other fields unchanged
+3. Response must be in JSON format
+4. Use Russian language for fields
+
+Current task:
+%s
+
+User feedback:
+%s
+
+Return the updated task in JSON format.`
 
 	return &AIClient{
 		httpClient:       client,
+		apiKey:           apiKey,
+		folderID:         folderID,
+		modelURI:         modelURI,
 		createTaskPrompt: createTaskPrompt,
 		editTaskPrompt:   editTaskPrompt,
 	}, nil
 }
 
-// AnalyzeDiscussion analyzes messages using AI to extract task information
+// AnalyzeDiscussion analyzes messages using YandexGPT to extract task information
 func (c *AIClient) AnalyzeDiscussion(ctx context.Context, messages []string) (*AnalyzedTask, error) {
 	if len(messages) == 0 {
 		return nil, fmt.Errorf("no messages to analyze")
@@ -99,21 +229,37 @@ func (c *AIClient) AnalyzeDiscussion(ctx context.Context, messages []string) (*A
 	// Join all messages into a single text
 	discussionText := strings.Join(messages, "\n")
 
-	// Format the prompt with our template for task creation
-	prompt := fmt.Sprintf(c.createTaskPrompt, discussionText)
+	// Create the full prompt
+	fullPrompt := c.createTaskPrompt + "\n" + discussionText + "\n\nResponse in JSON format:"
 
-	// Log the prompt for debugging purposes
-	log.Printf("AI Prompt generated (not used in placeholder implementation): %s", prompt)
+	// Prepare request to YandexGPT
+	request := YandexGPTRequest{
+		ModelURI: c.modelURI,
+		CompletionOptions: &CompletionOptions{
+			Stream:      false,
+			Temperature: 0.3, // Low temperature for more deterministic responses
+			MaxTokens:   2000,
+		},
+		Messages: []YandexGPTMessage{
+			{
+				Role: "user",
+				Text: fullPrompt,
+			},
+		},
+	}
 
-	// In a production environment, this would call the real AI API:
-	// return c.callAIAPI(ctx, prompt)
+	// Make API call
+	var response YandexGPTResponse
+	err := c.httpClient.Post(ctx, "completion", request, &response)
+	if err != nil {
+		return nil, fmt.Errorf("YandexGPT API error: %w", err)
+	}
 
-	// For this implementation, we'll return a placeholder task
-	// but we're keeping the structure in place for real API integration
-	return c.generatePlaceholderTask(discussionText), nil
+	// Parse the response
+	return c.parseGPTResponse(&response)
 }
 
-// EditTask edits an existing task based on user feedback
+// EditTask edits an existing task based on user feedback using YandexGPT
 func (c *AIClient) EditTask(ctx context.Context, task *AnalyzedTask, userFeedback string) (*AnalyzedTask, error) {
 	if task == nil {
 		return nil, fmt.Errorf("no task to edit")
@@ -123,132 +269,106 @@ func (c *AIClient) EditTask(ctx context.Context, task *AnalyzedTask, userFeedbac
 		return nil, fmt.Errorf("no feedback provided for editing")
 	}
 
-	// Format labels for prompt in a real implementation
-	// This would be used in the prompt like:
-	// labels := strings.Join(task.Labels, ", ")
-
-	// Format the prompt with task details and user feedback
-	// In a real implementation, this would call the AI API
-	// For now, return a modified task based on simple rules
-
-	// STUB: This is where we would make the real API call
-	// Return a modified task as a placeholder
-	return c.generatePlaceholderEditedTask(task, userFeedback), nil
-}
-
-// generatePlaceholderTask creates a simple placeholder task for new task creation
-// This would be replaced with real AI API call implementation
-func (c *AIClient) generatePlaceholderTask(text string) *AnalyzedTask {
-	// Create a basic placeholder task with minimal processing
-	// In a real implementation, this would parse the AI response
-
-	// Extract a simple title (first line or truncated text)
-	title := "Task from discussion"
-	lines := strings.Split(text, "\n")
-	if len(lines) > 0 && len(lines[0]) > 0 {
-		title = lines[0]
-		if len(title) > 50 {
-			title = title[:47] + "..."
-		}
-	}
-
-	return &AnalyzedTask{
-		Title:        title,
-		Description:  fmt.Sprintf("Discussion content:\n\n%s", text),
-		DueDate:      "",
-		Priority:     1,
-		PriorityText: "Normal",
-		Labels:       []string{},
-	}
-}
-
-// generatePlaceholderEditedTask creates a placeholder for edited task
-// This would be replaced with real AI API call implementation
-func (c *AIClient) generatePlaceholderEditedTask(task *AnalyzedTask, feedback string) *AnalyzedTask {
-	// For demonstration purposes, make simple changes based on feedback
-	// In a real implementation, this would be replaced with AI analysis
-
-	editedTask := &AnalyzedTask{
-		Title:        task.Title,
-		Description:  task.Description,
-		DueDate:      task.DueDate,
-		Priority:     task.Priority,
-		PriorityText: task.PriorityText,
-		Labels:       task.Labels,
-	}
-
-	// Very simple keyword-based changes (just for placeholder functionality)
-	lowerFeedback := strings.ToLower(feedback)
-
-	// Update title if requested
-	if strings.Contains(lowerFeedback, "change title") ||
-		strings.Contains(lowerFeedback, "rename") ||
-		strings.Contains(lowerFeedback, "изменить название") {
-		parts := strings.Split(feedback, ":")
-		if len(parts) > 1 {
-			editedTask.Title = strings.TrimSpace(parts[1])
-		}
-	}
-
-	// Update priority if requested
-	if strings.Contains(lowerFeedback, "high priority") ||
-		strings.Contains(lowerFeedback, "высокий приоритет") {
-		editedTask.Priority = 3
-		editedTask.PriorityText = "High"
-	} else if strings.Contains(lowerFeedback, "urgent") ||
-		strings.Contains(lowerFeedback, "срочно") {
-		editedTask.Priority = 4
-		editedTask.PriorityText = "Urgent"
-	}
-
-	// Add placeholder for due date changes, etc.
-
-	return editedTask
-}
-
-/*
-// Example of what a real API call implementation might look like
-func (c *AIClient) callAIAPI(ctx context.Context, prompt string) (*AnalyzedTask, error) {
-	type AIRequest struct {
-		Prompt string `json:"prompt"`
-	}
-
-	type AIResponse struct {
-		Title       string   `json:"title"`
-		Description string   `json:"description"`
-		DueDate     string   `json:"due_date"`
-		Priority    int      `json:"priority"`
-		Labels      []string `json:"labels"`
-	}
-
-	// Prepare the request
-	request := AIRequest{Prompt: prompt}
-	var response AIResponse
-
-	// Make the API call
-	err := c.httpClient.Post(ctx, "analyze", request, &response)
+	// Format current task for the prompt
+	taskJSON, err := json.MarshalIndent(task, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("error calling AI API: %w", err)
+		return nil, fmt.Errorf("failed to marshal task: %w", err)
 	}
 
-	// Map the API response to our AnalyzedTask structure
-	priorityText := "Normal"
-	switch response.Priority {
-	case 2:
-		priorityText = "Medium"
-	case 3:
-		priorityText = "High"
-	case 4:
-		priorityText = "Urgent"
+	// Create the full prompt
+	fullPrompt := fmt.Sprintf(c.editTaskPrompt, string(taskJSON), userFeedback)
+
+	// Prepare request to YandexGPT
+	request := YandexGPTRequest{
+		ModelURI: c.modelURI,
+		CompletionOptions: &CompletionOptions{
+			Stream:      false,
+			Temperature: 0.3,
+			MaxTokens:   2000,
+		},
+		Messages: []YandexGPTMessage{
+			{
+				Role: "user",
+				Text: fullPrompt,
+			},
+		},
 	}
 
-	return &AnalyzedTask{
-		Title:        response.Title,
-		Description:  response.Description,
-		DueDate:      response.DueDate,
-		Priority:     response.Priority,
-		PriorityText: priorityText,
-		Labels:       response.Labels,
-	}, nil
+	// Make API call
+	var response YandexGPTResponse
+	err = c.httpClient.Post(ctx, "completion", request, &response)
+	if err != nil {
+		return nil, fmt.Errorf("YandexGPT API error: %w", err)
+	}
+
+	// Parse the response
+	return c.parseGPTResponse(&response)
 }
-*/
+
+// parseGPTResponse parses YandexGPT response into AnalyzedTask
+func (c *AIClient) parseGPTResponse(response *YandexGPTResponse) (*AnalyzedTask, error) {
+	if response.Result == nil || len(response.Result.Alternatives) == 0 {
+		return nil, fmt.Errorf("no alternatives in response")
+	}
+
+	// Get the text from the first alternative
+	text := response.Result.Alternatives[0].Message.Text
+	log.Printf("YandexGPT raw response: %s", text)
+
+	// Try to extract JSON from the response (model might add extra text)
+	jsonStart := strings.Index(text, "{")
+	jsonEnd := strings.LastIndex(text, "}")
+	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
+		return nil, fmt.Errorf("no valid JSON found in response")
+	}
+
+	jsonStr := text[jsonStart : jsonEnd+1]
+
+	// Parse JSON
+	var task AnalyzedTask
+	if err := json.Unmarshal([]byte(jsonStr), &task); err != nil {
+		log.Printf("Failed to parse JSON: %s, error: %v", jsonStr, err)
+		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
+	}
+
+	// Validate required fields
+	if task.Title == "" {
+		return nil, fmt.Errorf("task title is required")
+	}
+
+	// Ensure description is not empty
+	if task.Description == "" {
+		task.Description = "No description provided"
+	}
+
+	// Set priority text if not provided
+	if task.PriorityText == "" {
+		priorityMap := map[int]string{
+			1: "Normal",
+			2: "Medium",
+			3: "High",
+			4: "Urgent",
+		}
+		if text, ok := priorityMap[task.Priority]; ok {
+			task.PriorityText = text
+		} else {
+			task.Priority = 1
+			task.PriorityText = "Normal"
+		}
+	}
+
+	// Validate priority range
+	if task.Priority < 1 || task.Priority > 4 {
+		task.Priority = 1
+	}
+
+	// Ensure labels is not nil
+	if task.Labels == nil {
+		task.Labels = []string{}
+	}
+
+	log.Printf("Parsed task: Title=%s, Priority=%d, Due=%s",
+		task.Title, task.Priority, task.DueDate)
+
+	return &task, nil
+}

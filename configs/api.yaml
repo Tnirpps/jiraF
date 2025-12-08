@@ -1,29 +1,17 @@
 clients:
-  # Todoist API client configuration
   todoist:
-    # Ensure the base URL doesn't have a trailing slash
-    base_url: "https://api.todoist.com/rest/v2"
-    timeout: "30s"
+    base_url: https://api.todoist.com/rest/v2/
+    timeout: 30s
+    authorization:
+      type: Bearer
+      token_env_var: TODOIST_API_TOKEN
     retry_count: 3
-    retry_wait_time: "1s"
-    max_retry_wait_time: "10s"
     enable_logging: true
-    authorization:
-      type: "Bearer"
-      token_env_var: "TODOIST_API_TOKEN"
-    headers:
-      Content-Type: "application/json"
-
-  # AI service configuration
-  ai_service:
-    base_url: "https://api.example.com/ai"
-    timeout: "60s"
+  
+  yandex_gpt:
+    base_url: https://llm.api.cloud.yandex.net/foundationModels/v1/
+    timeout: 60s
     retry_count: 2
-    retry_wait_time: "1s"
-    max_retry_wait_time: "30s"
+    retry_wait_time: 2s
+    max_retry_wait_time: 10s
     enable_logging: true
-    authorization:
-      type: "Bearer"
-      token_env_var: "AI_API_TOKEN"
-    headers:
-      Content-Type: "application/json"
