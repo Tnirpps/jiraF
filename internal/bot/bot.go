@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -90,7 +91,7 @@ func New(telegramToken string, dbManager commands.DBManager) (*Bot, error) {
 	registry.Register(createTaskCmd)
 
 	// Create callback handler
-	callbackHandler := commands.NewCallbackHandler(dbManager)
+	callbackHandler := commands.NewCallbackHandler(todoistClient, dbManager)
 
 	return &Bot{
 		api:             api,
@@ -177,13 +178,21 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 		}
 	}
 
-	// Only delete the message if the user is the session owner
+	// Only delete buttons if the user is the session owner
 	if callbackResp.IsOwner {
-		// Delete the original message with buttons
-		deleteMsg := tgbotapi.NewDeleteMessage(callback.Message.Chat.ID, callback.Message.MessageID)
-		_, err := b.api.Request(deleteMsg)
-		if err != nil {
-			log.Printf("Error deleting message: %v", err)
+		// Delete buttons from the original message
+
+		editMsg := tgbotapi.NewEditMessageText(callback.Message.Chat.ID, callback.Message.MessageID, callback.Message.Text)
+		editMsg.ParseMode = "Markdown"
+		// Очищение разметки с кнопками
+		editMsg.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{
+			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
+		}
+
+		// Отправка отредактированного сообщения без кнопок
+		if _, err := b.api.Send(editMsg); err != nil {
+			log.Println("Error editing message:", err)
+			return
 		}
 
 		// Check if we need to send the edit message
@@ -205,16 +214,16 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 			// Send a confirmation message for non-edit callbacks
 			var text string
 			if callbackType == commands.CallbackConfirm {
-				text = "✅ Action confirmed (placeholder - will create task in next phase)"
+				text = "✅ Задача успешно создана"
 			} else if callbackType == commands.CallbackCancel {
-				text = "❌ Action canceled"
+				text = "❌ Создание задачи отменено. Можете продолжать обсуждение"
 			} else {
 				// Unknown callback type
 				text = "🔄 Action processed"
 			}
 
 			msg := tgbotapi.NewMessage(callback.Message.Chat.ID, text)
-			_, err = b.api.Send(msg)
+			_, err := b.api.Send(msg)
 			if err != nil {
 				log.Printf("Error sending confirmation message: %v", err)
 			}
@@ -301,10 +310,6 @@ func (b *Bot) sendMessage(chatID int64, text string) {
 
 // handleEditReply processes a user's reply to an edit request message
 func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
-	// Context would be used in real implementation with database and API calls
-	// ctx := context.Background()
-
-	// Log the edit request
 	log.Printf("Processing edit request for session %s: %s", sessionID, message.Text)
 
 	// Clean up the tracking
@@ -320,32 +325,34 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 
 	// PLACEHOLDER: Get draft task from database
 	// Example:
-	// sessionIDInt, _ := strconv.Atoi(sessionID)
-	// draftTask, err := b.dbManager.GetDraftTask(ctx, sessionIDInt)
-	// if err != nil {
-	//     log.Printf("Error retrieving draft task: %v", err)
-	//     b.sendMessage(message.Chat.ID, "❌ Error retrieving task details")
-	//     return
-	// }
+	sessionIDInt, _ := strconv.Atoi(sessionID)
+	ctx := context.Background()
+	draftTask, err := b.dbManager.GetDraftTask(ctx, sessionIDInt)
+	if err != nil {
+		log.Printf("Error retrieving draft task: %v", err)
+		b.sendMessage(message.Chat.ID, "❌ Error retrieving task details")
+		return
+	}
+	aiTask := &ai.AnalyzedTask{
+		Title:        draftTask.Title.String,
+		Description:  draftTask.Description.String,
+		DueDate:      draftTask.DueISO.String,
+		Priority:     int(draftTask.Priority.Int32),
+		PriorityText: "",
+	}
 
-	// PLACEHOLDER: In a real implementation, we would have the original task from the database
-	// and pass it to the AI client for editing
+	editedTask, err := b.aiClient.EditTask(ctx, aiTask, message.Text)
+	if err != nil {
+		log.Printf("Error editing task: %v", err)
+		b.sendMessage(message.Chat.ID, "❌ Error editing task")
+		return
+	}
 
-	// PLACEHOLDER: Call AI service to edit the task based on feedback
-	log.Printf("Would call AI client to edit task with feedback: %s", message.Text)
-
-	// For demonstration, we're not actually calling the AI client:
-	// Original task would come from database
-	// editedTask, err := b.aiClient.EditTask(ctx, originalTask, message.Text)
-
-	// Simulating edited task for demonstration (as if the AI had processed the feedback)
-	editedTask := &ai.AnalyzedTask{
-		Title:        "Updated task title",
-		Description:  "Updated task description based on feedback",
-		DueDate:      "friday",
-		Priority:     2,
-		PriorityText: "Medium",
-		Labels:       []string{"updated"},
+	err = b.dbManager.SaveDraftTask(ctx, sessionIDInt, editedTask.Title, editedTask.Description, editedTask.DueDate, editedTask.Priority, "")
+	if err != nil {
+		log.Printf("Error saving edited task: %v", err)
+		b.sendMessage(message.Chat.ID, "❌ Error saving task")
+		return
 	}
 
 	// Send back a confirmation message with the changes
@@ -356,7 +363,6 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		"*Due:* %s\n"+
 		"*Priority:* %s\n"+
 		"*Labels:* %s\n\n"+
-		"In a real implementation, this would use the AI to process your feedback.",
 		editedTask.Title,
 		editedTask.Description,
 		editedTask.DueDate,
@@ -365,5 +371,7 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, responseText)
 	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = commands.CreateInlineKeyboard(sessionIDInt)
+
 	b.sendResponse(&msg)
 }

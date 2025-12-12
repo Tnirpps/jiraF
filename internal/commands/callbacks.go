@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/user/telegram-bot/internal/todoist"
 )
 
 // Callback data constants for task actions
@@ -36,13 +37,15 @@ type CallbackResponse struct {
 
 // CallbackHandler processes callback queries from buttons
 type CallbackHandler struct {
-	dbManager DBManager
+	dbManager     DBManager
+	todoistClient todoist.Client
 }
 
 // NewCallbackHandler creates a new callback handler
-func NewCallbackHandler(dbManager DBManager) *CallbackHandler {
+func NewCallbackHandler(todoistClient todoist.Client, dbManager DBManager) *CallbackHandler {
 	return &CallbackHandler{
-		dbManager: dbManager,
+		dbManager:     dbManager,
+		todoistClient: todoistClient,
 	}
 }
 
@@ -103,6 +106,11 @@ func (h *CallbackHandler) verifySessionOwner(sessionIDStr string, userID int64) 
 }
 
 // handleConfirmCallback handles confirming a task
+// This will:
+// 1. Fetch the draft task from the database
+// 2. Create a real task in Todoist
+// 3. Save the created task ID and URL
+// 4. Close the session
 func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery, sessionIDStr string) *CallbackResponse {
 	// Check if the user is the owner of the session
 	isOwner, err := h.verifySessionOwner(sessionIDStr, int64(callback.From.ID))
@@ -123,20 +131,67 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 		}
 	}
 
-	// PLACEHOLDER: This will be implemented in the next phase
-	// Will connect to Todoist API and create actual task
-	log.Printf("PLACEHOLDER: Confirming task from session %s", sessionIDStr)
+	sessionID, err := strconv.Atoi(sessionIDStr)
+	if err != nil {
+		log.Print(fmt.Errorf("invalid session ID: %v", err))
+		return nil
+	}
 
-	// In the next phase, this will:
-	// 1. Fetch the draft task from the database
-	// 2. Create a real task in Todoist
-	// 3. Save the created task ID and URL
-	// 4. Close the session
+	ctx := context.Background()
+	task, err := h.dbManager.GetDraftTask(ctx, sessionID)
+	if err != nil {
+		log.Printf("Error getting draft task: %v", err)
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Error: Failed to get draft task")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        true,
+		}
+	}
 
-	callbackCfg := tgbotapi.NewCallback(callback.ID, "✅ Got it! This will create a task in the next phase.")
+	projectID, err := h.dbManager.GetTodoistProjectID(ctx, callback.Message.Chat.ID)
+	if err != nil {
+		log.Printf("Error getting Todoist project ID: %v", err)
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Error: Failed to get Todoist project ID")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        true,
+		}
+	}
+
+	todoistRequest := &todoist.TaskRequest{
+		Content:     task.Title.String,
+		Description: task.Description.String,
+		ProjectID:   projectID,
+		Priority:    int(task.Priority.Int32),
+		DueDate:     task.DueISO.String,
+	}
+	resp, err := h.todoistClient.CreateTask(ctx, todoistRequest)
+	if err != nil {
+		log.Printf("Error creating task: %v", err)
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Error: Failed to create task")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        true,
+		}
+	}
+
+	err = h.dbManager.SaveCreatedTask(ctx, sessionID, resp.ID, resp.URL)
+	if err != nil {
+		log.Printf("Error saving created task: %v", err)
+	}
+
+	err = h.dbManager.CloseSession(ctx, callback.Message.Chat.ID)
+	if err != nil {
+		log.Printf("Error closing session: %v", err)
+	}
+
+	callbackCfg := tgbotapi.NewCallback(callback.ID, "✅ Отлично! Создаю задачу.")
+	messageText := fmt.Sprintf("✅ **Задача создана**: [%s](%s)", task.Title.String, resp.URL)
+	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, messageText)
 	return &CallbackResponse{
-		CallbackConfig: &callbackCfg,
-		IsOwner:        true,
+		CallbackConfig:  &callbackCfg,
+		IsOwner:         true,
+		ResponseMessage: &msg,
 	}
 }
 
@@ -176,6 +231,13 @@ func (h *CallbackHandler) handleEditCallback(callback *tgbotapi.CallbackQuery, s
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "Markdown"
+
+	// sessionID, err := strconv.Atoi(sessionIDStr)
+	// if err == nil {
+	// 	msg.ReplyMarkup = createInlineKeyboard(sessionID)
+	// } else {
+	// 	log.Printf("Error converting session ID to int: %v", err)
+	// }
 
 	// Create acknowledgment for the callback
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "✏️ Please reply to my next message with your edit instructions")

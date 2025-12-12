@@ -95,7 +95,16 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 	var messageTexts []string
 	for _, msg := range messages {
 		if msg.Text != "" {
-			messageTexts = append(messageTexts, msg.Text)
+			var username string
+			if msg.Username.Valid {
+				username = msg.Username.String
+			} else {
+				username = "Unknown Author"
+			}
+			messageTexts = append(
+				messageTexts,
+				fmt.Sprintf("%s, [%s]: %s", username, msg.Timestamp.Format("2006-01-02 15:04:05"), msg.Text),
+			)
 		}
 	}
 
@@ -138,6 +147,18 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 	return c.createPreviewMessage(message.Chat.ID, session.ID, analyzedTask, dueISO, assigneeNote)
 }
 
+func CreateInlineKeyboard(sessionID int) tgbotapi.InlineKeyboardMarkup {
+	sessionIDStr := fmt.Sprintf("%d", sessionID)
+	confirmButton := tgbotapi.NewInlineKeyboardButtonData("✅ Confirm", CallbackConfirm+CallbackDataSeparator+sessionIDStr)
+	editButton := tgbotapi.NewInlineKeyboardButtonData("✏️ Edit", CallbackEdit+CallbackDataSeparator+sessionIDStr)
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Cancel", CallbackCancel+CallbackDataSeparator+sessionIDStr)
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(confirmButton, editButton, cancelButton),
+	)
+	return keyboard
+}
+
 // createPreviewMessage creates a task preview with buttons
 func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, task *ai.AnalyzedTask, dueISO, assigneeNote string) *tgbotapi.MessageConfig {
 	// Format due date for display (MSK timezone)
@@ -166,15 +187,7 @@ func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, ta
 	msg.ParseMode = "Markdown"
 
 	// Add inline keyboard
-	sessionIDStr := fmt.Sprintf("%d", sessionID)
-	confirmButton := tgbotapi.NewInlineKeyboardButtonData("✅ Confirm", CallbackConfirm+CallbackDataSeparator+sessionIDStr)
-	editButton := tgbotapi.NewInlineKeyboardButtonData("✏️ Edit", CallbackEdit+CallbackDataSeparator+sessionIDStr)
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Cancel", CallbackCancel+CallbackDataSeparator+sessionIDStr)
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(confirmButton, editButton, cancelButton),
-	)
-	msg.ReplyMarkup = keyboard
+	msg.ReplyMarkup = CreateInlineKeyboard(sessionID)
 
 	return &msg
 }

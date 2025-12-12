@@ -300,6 +300,33 @@ func (m *Manager) SaveDraftTask(ctx context.Context, sessionID int, title, descr
 	return nil
 }
 
+func (m *Manager) GetDraftTask(ctx context.Context, sessionID int) (DraftTask, error) {
+	const query = `
+        SELECT session_id, title, description, due_iso, priority, assignee_note, updated_at
+        FROM draft_tasks
+        WHERE session_id = $1
+    `
+
+	var t DraftTask
+	err := m.db.QueryRowContext(ctx, query, sessionID).Scan(
+		&t.SessionID,
+		&t.Title,
+		&t.Description,
+		&t.DueISO,
+		&t.Priority,
+		&t.AssigneeNote,
+		&t.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return DraftTask{}, fmt.Errorf("draft task not found: %w", err)
+		}
+		return DraftTask{}, fmt.Errorf("failed to get draft task: %w", err)
+	}
+
+	return t, nil
+}
+
 // SaveCreatedTask saves a created Todoist task
 func (m *Manager) SaveCreatedTask(ctx context.Context, sessionID int, todoistTaskID, url string) error {
 	query := `

@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
+	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/user/telegram-bot/internal/httpclient"
 )
@@ -31,9 +30,9 @@ type AnalyzedTask struct {
 
 // YandexGPTRequest structure for YandexGPT API request
 type YandexGPTRequest struct {
-	ModelURI          string                  `json:"modelUri"`
-	CompletionOptions *CompletionOptions      `json:"completionOptions"`
-	Messages          []YandexGPTMessage      `json:"messages"`
+	ModelURI          string             `json:"modelUri"`
+	CompletionOptions *CompletionOptions `json:"completionOptions"`
+	Messages          []YandexGPTMessage `json:"messages"`
 }
 
 // YandexGPTMessage structure for YandexGPT message
@@ -72,12 +71,16 @@ type MessageContent struct {
 	Role string `json:"role"`
 	Text string `json:"text"`
 }
+type CompletionTokensDetails struct {
+	ReasoningTokens string `json:"reasoningTokens"`
+}
 
 // Usage usage statistics
 type Usage struct {
-	InputTextTokens  int `json:"inputTextTokens"`
-	CompletionTokens int `json:"completionTokens"`
-	TotalTokens      int `json:"totalTokens"`
+	InputTextTokens         string                  `json:"inputTextTokens"`
+	CompletionTokens        string                  `json:"completionTokens"`
+	TotalTokens             string                  `json:"totalTokens"`
+	CompletionTokensDetails CompletionTokensDetails `json:"completionTokensDetails"`
 }
 
 // AIClient is the implementation for AI analysis with YandexGPT
@@ -139,33 +142,6 @@ func NewClient() (Client, error) {
 		}
 	})
 
-	// Test connection to API
-	testCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Test request to verify API connection
-	testRequest := YandexGPTRequest{
-		ModelURI: modelURI,
-		CompletionOptions: &CompletionOptions{
-			Stream:      false,
-			Temperature: 0.1,
-			MaxTokens:   10,
-		},
-		Messages: []YandexGPTMessage{
-			{
-				Role: "user",
-				Text: "Hello, reply with one word: ready",
-			},
-		},
-	}
-
-	// Make test API call
-	var testResponse YandexGPTResponse
-	err = client.Post(testCtx, "completion", testRequest, &testResponse)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to YandexGPT API: %w", err)
-	}
-
 	// System prompt for creating a task from discussion
 	createTaskPrompt := `You are a task management assistant. Analyze the dialog and extract information for a Todoist task.
 
@@ -176,12 +152,12 @@ Response requirements:
 
 JSON format:
 {
-  "title": "Brief, informative task title (max 100 characters)",
-  "description": "Detailed task description, including all important details from the discussion",
+  "title"[string]: "Brief, informative task title (max 100 characters)",
+  "description"[string]: "Detailed task description, including all important details from the discussion",
   "due_date": "Due date in YYYY-MM-DD format or relative format (today, tomorrow, mon, tue, etc.). If no due date mentioned, leave empty string",
-  "priority": "Priority from 1 to 4, where 1 is normal, 4 is urgent",
-  "priority_text": "Text description of priority (Normal, Medium, High, Urgent)",
-  "labels": ["list", "of", "relevant", "tags"]
+  "priority"[integer]: "Priority from 1 to 4, where 1 is normal, 4 is urgent",
+  "priority_text"[string]: "Text description of priority (Normal, Medium, High, Urgent)",
+  "labels"[list of strings]: ["list", "of", "relevant", "tags"]
 }
 
 Rules:
@@ -277,6 +253,7 @@ func (c *AIClient) EditTask(ctx context.Context, task *AnalyzedTask, userFeedbac
 
 	// Create the full prompt
 	fullPrompt := fmt.Sprintf(c.editTaskPrompt, string(taskJSON), userFeedback)
+	fmt.Printf("[full gpt promt]: %s", fullPrompt)
 
 	// Prepare request to YandexGPT
 	request := YandexGPTRequest{

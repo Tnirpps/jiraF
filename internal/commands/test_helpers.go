@@ -105,6 +105,16 @@ func (m *MockDBManager) SaveDraftTask(ctx context.Context, sessionID int, title,
 	return args.Error(0)
 }
 
+func (m *MockDBManager) GetDraftTask(ctx context.Context, sessionID int) (db.DraftTask, error) {
+	args := m.Called(ctx, sessionID)
+	if v := args.Get(0); v != nil {
+		if dt, ok := v.(db.DraftTask); ok {
+			return dt, args.Error(1)
+		}
+	}
+	return db.DraftTask{}, args.Error(1)
+}
+
 func (m *MockDBManager) SaveCreatedTask(ctx context.Context, sessionID int, todoistTaskID, url string) error {
 	args := m.Called(ctx, sessionID, todoistTaskID, url)
 	return args.Error(0)
