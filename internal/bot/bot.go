@@ -362,7 +362,7 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		"*Description:* %s\n"+
 		"*Due:* %s\n"+
 		"*Priority:* %s\n"+
-		"*Labels:* %s\n\n"+
+		"*Labels:* %s\n\n",
 		editedTask.Title,
 		editedTask.Description,
 		editedTask.DueDate,

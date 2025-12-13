@@ -6,11 +6,18 @@ clients:
       type: Bearer
       token_env_var: TODOIST_API_TOKEN
     retry_count: 3
+    headers:
+      Content-Type: "application/json"
     enable_logging: true
   
   yandex_gpt:
     base_url: https://llm.api.cloud.yandex.net/foundationModels/v1/
     timeout: 60s
+    authorization:
+      type: Api-Key
+      token_env_var: YANDEX_API_KEY
+    headers:
+      Content-Type: "application/json"
     retry_count: 2
     retry_wait_time: 2s
     max_retry_wait_time: 10s

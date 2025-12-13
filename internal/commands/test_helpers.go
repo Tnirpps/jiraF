@@ -5,6 +5,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/stretchr/testify/mock"
+	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/db"
 )
 
@@ -163,5 +164,44 @@ func (h *MockDBHelper) WithIsSessionOwner(sessionID int, userID int64, isOwner b
 // WithCloseSession sets up the mock to expect and respond to CloseSession calls
 func (h *MockDBHelper) WithCloseSession(chatID int64, err error) *MockDBHelper {
 	h.mock.On("CloseSession", mock.Anything, chatID).Return(err)
+	return h
+}
+
+// Mock AI model client
+type AIClientMock struct {
+	mock.Mock
+}
+
+func (m *AIClientMock) AnalyzeDiscussion(ctx context.Context, messages []string) (*ai.AnalyzedTask, error) {
+	args := m.Called(ctx, messages)
+	if v := args.Get(0); v != nil {
+		return v.(*ai.AnalyzedTask), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *AIClientMock) EditTask(ctx context.Context, task *ai.AnalyzedTask, userFeedback string) (*ai.AnalyzedTask, error) {
+	args := m.Called(ctx, task, userFeedback)
+	if v := args.Get(0); v != nil {
+		return v.(*ai.AnalyzedTask), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+type AIClientMockMockHelper struct {
+	m *AIClientMock
+}
+
+func ConfigureClientMock(m *AIClientMock) *AIClientMockMockHelper {
+	return &AIClientMockMockHelper{m: m}
+}
+
+func (h *AIClientMockMockHelper) AnalyzeDiscussionExact(msgs []string, res *ai.AnalyzedTask, err error) *AIClientMockMockHelper {
+	h.m.On("AnalyzeDiscussion", mock.Anything, msgs).Return(res, err)
+	return h
+}
+
+func (h *AIClientMockMockHelper) EditTaskExact(task *ai.AnalyzedTask, feedback string, res *ai.AnalyzedTask, err error) *AIClientMockMockHelper {
+	h.m.On("EditTask", mock.Anything, task, feedback).Return(res, err)
 	return h
 }

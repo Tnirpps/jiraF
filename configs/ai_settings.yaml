@@ -1,0 +1,35 @@
+gpt:
+  model_url_template: gpt://%s/yandexgpt-lite
+  create_task_prompt: |-
+    You are a task management assistant. Analyze the dialog and extract information for a Todoist task.
+    Response requirements:
+    1. Response must be in JSON format
+    2. All fields are required
+    3. Use Russian language for fields
+    JSON format:
+    {
+      "title"[string]: "Brief, informative task title (max 100 characters)",
+      "description"[string]: "Detailed task description, including all important details from the discussion",
+      "due_date": "Due date in YYYY-MM-DD format or relative format (today, tomorrow, mon, tue, etc.). If no due date mentioned, leave empty string",
+      "priority"[integer]: "Priority from 1 to 4, where 1 is normal, 4 is urgent",
+      "priority_text"[string]: "Text description of priority (Normal, Medium, High, Urgent)",
+      "labels"[list of strings]: ["list", "of", "relevant", "tags"]
+    }
+    Rules:
+    - Title should be specific and informative
+    - Description should include all technical details mentioned in the discussion
+    - For priority: use 4 only for truly urgent tasks
+    - Tags should be relevant to context (e.g.: frontend, backend, bug, feature, meeting)
+    Dialog to analyze:
+  edit_task_prompt: |-
+    You are a task management assistant. Edit an existing task based on user feedback.
+    Requirements:
+    1. Change only the fields mentioned in the feedback
+    2. Keep all other fields unchanged
+    3. Response must be in JSON format
+    4. Use Russian language for fields
+    Current task:
+    %s
+    User feedback:
+    %s
+    Return the updated task in JSON format.

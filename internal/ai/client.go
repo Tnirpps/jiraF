@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 
@@ -86,8 +85,6 @@ type Usage struct {
 // AIClient is the implementation for AI analysis with YandexGPT
 type AIClient struct {
 	httpClient       *httpclient.Client
-	apiKey           string
-	folderID         string
 	modelURI         string
 	createTaskPrompt string
 	editTaskPrompt   string
@@ -113,86 +110,22 @@ func NewClient() (Client, error) {
 		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
 
-	// Get API key from environment variable
-	apiKey := os.Getenv("YANDEX_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("YANDEX_API_KEY environment variable is required")
+	aiSettings, err := LoadAiSettings("configs/ai_settings.yaml")
+	if err != nil {
+		log.Printf("Error loading AI settings: %v. Using default settings.", err)
+		return nil, fmt.Errorf("failed to load AI settings: %w", err)
 	}
 
-	// Get folder ID from environment variable
 	folderID := os.Getenv("YANDEX_FOLDER_ID")
 	if folderID == "" {
 		return nil, fmt.Errorf("YANDEX_FOLDER_ID environment variable is required")
 	}
 
-	// Validate API key format
-	if len(apiKey) < 20 {
-		return nil, fmt.Errorf("YANDEX_API_KEY appears to be invalid (too short)")
-	}
-
-	// Model URI for YandexGPT
-	modelURI := fmt.Sprintf("gpt://%s/yandexgpt-lite", folderID)
-
-	// Add authorization header to the client
-	client.WithMiddleware(func(next httpclient.Handler) httpclient.Handler {
-		return func(ctx context.Context, req *http.Request) (*http.Response, error) {
-			req.Header.Set("Authorization", fmt.Sprintf("Api-Key %s", apiKey))
-			req.Header.Set("Content-Type", "application/json")
-			return next(ctx, req)
-		}
-	})
-
-	// System prompt for creating a task from discussion
-	createTaskPrompt := `You are a task management assistant. Analyze the dialog and extract information for a Todoist task.
-
-Response requirements:
-1. Response must be in JSON format
-2. All fields are required
-3. Use Russian language for fields
-
-JSON format:
-{
-  "title"[string]: "Brief, informative task title (max 100 characters)",
-  "description"[string]: "Detailed task description, including all important details from the discussion",
-  "due_date": "Due date in YYYY-MM-DD format or relative format (today, tomorrow, mon, tue, etc.). If no due date mentioned, leave empty string",
-  "priority"[integer]: "Priority from 1 to 4, where 1 is normal, 4 is urgent",
-  "priority_text"[string]: "Text description of priority (Normal, Medium, High, Urgent)",
-  "labels"[list of strings]: ["list", "of", "relevant", "tags"]
-}
-
-Rules:
-- Title should be specific and informative
-- Description should include all technical details mentioned in the discussion
-- For priority: use 4 only for truly urgent tasks
-- Tags should be relevant to context (e.g.: frontend, backend, bug, feature, meeting)
-
-Dialog to analyze:
-`
-
-	// System prompt for editing a task based on user feedback
-	editTaskPrompt := `You are a task management assistant. Edit an existing task based on user feedback.
-
-Requirements:
-1. Change only the fields mentioned in the feedback
-2. Keep all other fields unchanged
-3. Response must be in JSON format
-4. Use Russian language for fields
-
-Current task:
-%s
-
-User feedback:
-%s
-
-Return the updated task in JSON format.`
-
 	return &AIClient{
 		httpClient:       client,
-		apiKey:           apiKey,
-		folderID:         folderID,
-		modelURI:         modelURI,
-		createTaskPrompt: createTaskPrompt,
-		editTaskPrompt:   editTaskPrompt,
+		modelURI:         fmt.Sprintf(aiSettings.ModelURLTemplate, folderID),
+		createTaskPrompt: aiSettings.CreateTaskPrompt,
+		editTaskPrompt:   aiSettings.EditTaskPrompt,
 	}, nil
 }
 
