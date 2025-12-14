@@ -35,7 +35,7 @@ func (c *CreateTaskCommand) Name() string {
 
 // Description returns the command description
 func (c *CreateTaskCommand) Description() string {
-	return "Create task from discussion context"
+	return "Создать задачу на основе обсуждения"
 }
 
 // Execute handles the command execution
@@ -51,7 +51,7 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 	}
 
 	if !hasActive {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "No active discussion. Start with /start_discussion first.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Нет активного обсуждения. Начните его командой /start_discussion.")
 		return &msg
 	}
 
@@ -66,7 +66,7 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 	// Check if the user is the session owner
 	senderID := int64(message.From.ID)
 	if session.OwnerID != senderID {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Only the user who started this discussion can create a task from it.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Только автор обсуждения может создать задачу по итогам обсуждения.")
 		return &msg
 	}
 
@@ -79,7 +79,7 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 	}
 
 	if len(messages) == 0 {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "No messages in discussion to create task from.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "В обсуждении нет сообщений, чтобы создать задачу.")
 		return &msg
 	}
 
@@ -114,7 +114,7 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 	analyzedTask, err := c.aiClient.AnalyzeDiscussion(ctx, messageTexts)
 	if err != nil {
 		log.Printf("AI analysis failed: %v", err)
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("❌ AI analysis failed: %v", err))
+		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ AI суммаризация не удалась(. Попробуйте заново")
 		return &msg
 	}
 
@@ -149,9 +149,9 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 
 func CreateInlineKeyboard(sessionID int) tgbotapi.InlineKeyboardMarkup {
 	sessionIDStr := fmt.Sprintf("%d", sessionID)
-	confirmButton := tgbotapi.NewInlineKeyboardButtonData("✅ Confirm", CallbackConfirm+CallbackDataSeparator+sessionIDStr)
-	editButton := tgbotapi.NewInlineKeyboardButtonData("✏️ Edit", CallbackEdit+CallbackDataSeparator+sessionIDStr)
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Cancel", CallbackCancel+CallbackDataSeparator+sessionIDStr)
+	confirmButton := tgbotapi.NewInlineKeyboardButtonData("✅ Подтвердить", CallbackConfirm+CallbackDataSeparator+sessionIDStr)
+	editButton := tgbotapi.NewInlineKeyboardButtonData("✏️ Редактировать", CallbackEdit+CallbackDataSeparator+sessionIDStr)
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", CallbackCancel+CallbackDataSeparator+sessionIDStr)
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(confirmButton, editButton, cancelButton),
@@ -162,25 +162,27 @@ func CreateInlineKeyboard(sessionID int) tgbotapi.InlineKeyboardMarkup {
 // createPreviewMessage creates a task preview with buttons
 func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, task *ai.AnalyzedTask, dueISO, assigneeNote string) *tgbotapi.MessageConfig {
 	// Format due date for display (MSK timezone)
-	dueDisplay := c.formatDueDateForDisplay(dueISO)
+	dueDisplay := FormatDueDateForDisplay(dueISO)
 
 	// Create response message with task details
-	responseText := fmt.Sprintf("📝 *Draft Task Preview*\n\n"+
-		"*Title:* %s\n\n"+
-		"*Description:* %s\n\n",
-		task.Title, task.Description)
+	responseText := fmt.Sprintf(
+		`✅ Черновик задачи готов.
+*Название:* %s
+*Описание:* %s`,
+		task.Title, task.Description,
+	)
 
 	if dueDisplay != "" {
-		responseText += fmt.Sprintf("*Due:* %s\n\n", dueDisplay)
+		responseText += fmt.Sprintf("\n*Срок выполнения:* %s\n", dueDisplay)
 	}
 
-	responseText += fmt.Sprintf("*Priority:* %s\n\n", task.PriorityText)
+	responseText += fmt.Sprintf("*Приоритет:* %s\n\n", task.PriorityText)
 
-	if assigneeNote != "" {
-		responseText += fmt.Sprintf("*Assigned to:* %s\n\n", assigneeNote)
-	}
+	// if assigneeNote != "" {
+	// 	responseText += fmt.Sprintf("*Assigned to:* %s\n\n", assigneeNote)
+	// }
 
-	responseText += "Please confirm to create this task in Todoist."
+	responseText += "Проверь описание и выбери действие:"
 
 	// Create message with inline buttons
 	msg := tgbotapi.NewMessage(chatID, responseText)
@@ -287,7 +289,7 @@ func (c *CreateTaskCommand) nextWeekday(now time.Time, weekday time.Weekday) str
 }
 
 // formatDueDateForDisplay formats ISO date to human-readable form in MSK timezone
-func (c *CreateTaskCommand) formatDueDateForDisplay(dueISO string) string {
+func FormatDueDateForDisplay(dueISO string) string {
 	if dueISO == "" {
 		return ""
 	}

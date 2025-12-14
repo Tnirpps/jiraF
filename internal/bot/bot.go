@@ -56,9 +56,9 @@ func New(telegramToken string, dbManager commands.DBManager) (*Bot, error) {
 	helpCmd := commands.NewHelpCommand(registry)
 	registry.Register(helpCmd)
 
-	// Task management commands
-	listCmd := commands.NewListCommand(todoistClient)
-	registry.Register(listCmd)
+	// // Task management commands
+	// listCmd := commands.NewListCommand(todoistClient)
+	// registry.Register(listCmd)
 
 	// Register discussion flow commands
 	setProjectCmd := commands.NewSetProjectCommand(todoistClient, dbManager)
@@ -203,7 +203,7 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 				text = "❌ Создание задачи отменено. Можете продолжать обсуждение"
 			} else {
 				// Unknown callback type
-				text = "🔄 Action processed"
+				text = "✅ Создание задачи отменено, продолжайте обсуждение"
 			}
 
 			msg := tgbotapi.NewMessage(callback.Message.Chat.ID, text)
@@ -340,16 +340,16 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 	}
 
 	// Send back a confirmation message with the changes
-	responseText := fmt.Sprintf("✅ *Task Updated!*\n\n"+
-		"New details:\n"+
-		"*Title:* %s\n"+
-		"*Description:* %s\n"+
-		"*Due:* %s\n"+
-		"*Priority:* %s\n"+
-		"*Labels:* %s\n\n",
+	responseText := fmt.Sprintf("✅ Задача обновлена!\n\n"+
+		"Изменения сохранены:\n"+
+		"*Название:* %s\n"+
+		"*Описание:* %s\n"+
+		"*Срок выполнения:* %s\n"+
+		"*Приоритет:* %s\n"+
+		"*Метки:* %s\n\n",
 		editedTask.Title,
 		editedTask.Description,
-		editedTask.DueDate,
+		commands.FormatDueDateForDisplay(editedTask.DueDate),
 		editedTask.PriorityText,
 		strings.Join(editedTask.Labels, ", "))
 

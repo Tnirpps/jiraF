@@ -30,7 +30,7 @@ func (c *SetProjectCommand) Name() string {
 }
 
 func (c *SetProjectCommand) Description() string {
-	return "Set Todoist project ID for this chat (usage: /set_project <id or URL>)"
+	return "Выбрать проект Todoist для этого чата (использование: /set_project <id>)"
 }
 
 func (c *SetProjectCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig {
@@ -38,7 +38,7 @@ func (c *SetProjectCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 	args := strings.TrimSpace(message.CommandArguments())
 
 	if args == "" {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Please provide a project ID or URL. Usage: /set_project <id or URL>")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Пожалуйста укажите ID. Использование: /set_project <id>")
 		return &msg
 	}
 
@@ -66,7 +66,7 @@ func (c *SetProjectCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 	}
 
 	if !validProject {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Invalid project ID. Please check and try again.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Неверный ID, такого проекта не существует. Пожалуйста укажите верный ID.")
 		return &msg
 	}
 
@@ -76,6 +76,6 @@ func (c *SetProjectCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 		return &msg
 	}
 
-	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Project ID set to: %s", projectID))
+	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Для этого чата установлен проект Todoist: %s", projectID))
 	return &msg
 }

@@ -124,7 +124,7 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 	}
 
 	if !isOwner {
-		callbackCfg := tgbotapi.NewCallback(callback.ID, "Only the user who started this discussion can confirm the task")
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Только автор обсужения может создать задачу")
 		return &CallbackResponse{
 			CallbackConfig: &callbackCfg,
 			IsOwner:        false,
@@ -209,7 +209,7 @@ func (h *CallbackHandler) handleEditCallback(callback *tgbotapi.CallbackQuery, s
 	}
 
 	if !isOwner {
-		callbackCfg := tgbotapi.NewCallback(callback.ID, "Only the user who started this discussion can edit the task")
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Только автор обсуждения может редактировать задачу")
 		return &CallbackResponse{
 			CallbackConfig: &callbackCfg,
 			IsOwner:        false,
@@ -222,12 +222,17 @@ func (h *CallbackHandler) handleEditCallback(callback *tgbotapi.CallbackQuery, s
 	chatID := callback.Message.Chat.ID
 
 	// Create the message asking for edit instructions
-	messageText := "✏️ *Editing task*\n\nPlease reply to this message with your edit instructions.\n\n" +
-		"Examples:\n" +
-		"• \"Change title to: Fix login bug\"\n" +
-		"• \"Set priority to high\"\n" +
-		"• \"Change due date to Friday\"\n" +
-		"• \"Add label: frontend\""
+	messageText := `
+✏️ Отредактировать задачу
+
+Пожалуйста, ответьте на это сообщение, указав ваши инструкции по редактированию в произвольном формате.
+
+Примеры:
+• "Измени заголовок на: Исправление ошибки входа в систему"
+• "Установи высокий приоритет"
+• "Измени срок выполнения на пятницу"
+• "Добавить метку: frontend"
+`
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "Markdown"
@@ -269,7 +274,7 @@ func (h *CallbackHandler) handleCancelCallback(callback *tgbotapi.CallbackQuery,
 	}
 
 	if !isOwner {
-		callbackCfg := tgbotapi.NewCallback(callback.ID, "Only the user who started this discussion can cancel the task")
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Только автор обсуждения может отменить задачу")
 		return &CallbackResponse{
 			CallbackConfig: &callbackCfg,
 			IsOwner:        false,

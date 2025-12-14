@@ -27,17 +27,36 @@ func (c *StartCommand) Description() string {
 }
 
 func (c *StartCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig {
-	welcomeText := "🤖 *Welcome to the JiraF Bot!* 🤖\n\n" +
-		"I help collect discussions and turn them into Todoist tasks.\n\n" +
-		"Workflow:\n" +
-		"1. First set your project with `/set_project <id or URL>`\n" +
-		"2. Start a discussion with `/start_discussion`\n" +
-		"3. Send messages that will be collected as context\n" +
-		"4. Create a task with `/create_task` or cancel with `/cancel`\n\n" +
-		"Type `/help` to see all available commands."
+	welcomeText := `🤖 Привет! Я AI Task Assistant JiraF 🤖
+Я помогаю превращать обсуждения в чате в готовые задачи.
+
+🔧 Что я умею
+— анализировать обсуждение
+— формировать черновик задачи
+— отправлять задачу в Todoist
+
+Как пользоваться:
+1️⃣ Выбери проект
+/set_project <id>  — установить проект Todoist для этого чата
+
+2️⃣ Начни обсуждение
+/start_discussion — начать сбор сообщений для создания задачи
+Продолжайте обсуждать задачу в чате — я всё запомню.
+
+3️⃣ Создай задачу
+/create_task — создать задачу из контекста обсуждения
+Я проанализирую обсуждение и предложу готовую задачу.
+
+🧩 Полный список команд
+/set_project <id> — выбрать проект Todoist для этого чата
+/start_discussion — начать сбор сообщений для создания задачи
+/cancel — отменить текущее обсуждение
+/create_task — создать задачу на основе обсуждения
+/help — показать список доступных команд
+`
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, welcomeText)
-	msg.ParseMode = "Markdown"
+	// msg.ParseMode = "Markdown"
 	return &msg
 }
 
@@ -60,23 +79,18 @@ func (c *HelpCommand) Name() string {
 
 // Description returns the command description
 func (c *HelpCommand) Description() string {
-	return "Show available commands"
+	return "показать список доступных команд"
 }
 
 func (c *HelpCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig {
-	helpText := "🤖 *JiraF Bot Commands* 🤖\n\n"
-
-	helpText += "*Discussion Workflow:*\n"
-	helpText += "• `/set_project <id|url>` - Set Todoist project for this chat\n"
-	helpText += "• `/start_discussion` - Start collecting messages for task creation\n"
-	helpText += "• `/cancel` - Cancel current discussion\n"
-	helpText += "• `/create_task` - Create task from discussion context\n\n"
-
-	helpText += "Type `/help` anytime to see this list again."
-
-	helpText += "• `/analyze` - AI-analyze discussion and create smart task\n\n"
+	helpText := `🧩 Полный список команд
+/set_project <id> — выбрать проект Todoist для этого чата
+/start_discussion — начать сбор сообщений для создания задачи
+/cancel — отменить текущее обсуждение
+/create_task — создать задачу на основе обсуждения
+/help — показать список доступных команд`
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, helpText)
-	msg.ParseMode = "Markdown"
+	// msg.ParseMode = "Markdown"
 	return &msg
 }

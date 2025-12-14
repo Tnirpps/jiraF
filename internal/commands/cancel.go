@@ -22,7 +22,7 @@ func (c *CancelCommand) Name() string {
 }
 
 func (c *CancelCommand) Description() string {
-	return "Cancel current discussion session"
+	return "Отменить текущее обсуждение"
 }
 
 func (c *CancelCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig {
@@ -31,14 +31,14 @@ func (c *CancelCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConf
 	// Get the active session
 	session, err := c.dbManager.GetActiveSession(ctx, message.Chat.ID)
 	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "No active discussion to cancel.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Нет активного обсуждения для отмены.")
 		return &msg
 	}
 
 	// Check if the user is the session owner
 	senderID := int64(message.From.ID)
 	if session.OwnerID != senderID {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Only the user who started this discussion can cancel it.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Только автор текущего обсуждение может отменить его.")
 		return &msg
 	}
 
@@ -49,6 +49,6 @@ func (c *CancelCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConf
 		return &msg
 	}
 
-	msg := tgbotapi.NewMessage(message.Chat.ID, "Discussion canceled. All collected messages have been discarded.")
+	msg := tgbotapi.NewMessage(message.Chat.ID, "Обсуждение отменено. Все собранные сообщения удалены.")
 	return &msg
 }

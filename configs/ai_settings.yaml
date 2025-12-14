@@ -10,7 +10,7 @@ gpt:
     {
       "title"[string]: "Brief, informative task title (max 100 characters)",
       "description"[string]: "Detailed task description, including all important details from the discussion",
-      "due_date": "Due date in YYYY-MM-DD format or relative format (today, tomorrow, mon, tue, etc.). If no due date mentioned, leave empty string",
+      "due_date": "Due date strictly in YYYY-MM-DD format. If no due date mentioned, try to guess how hard the task is",
       "priority"[integer]: "Priority from 1 to 4, where 1 is normal, 4 is urgent",
       "priority_text"[string]: "Text description of priority (Normal, Medium, High, Urgent)",
       "labels"[list of strings]: ["list", "of", "relevant", "tags"]
@@ -28,6 +28,15 @@ gpt:
     2. Keep all other fields unchanged
     3. Response must be in JSON format
     4. Use Russian language for fields
+    Task format is JSON:
+    {
+      "title"[string]: "Brief, informative task title (max 100 characters)",
+      "description"[string]: "Detailed task description, including all important details from the discussion",
+      "due_date": "Due date strictly in YYYY-MM-DD format.",
+      "priority"[integer]: "Priority from 1 to 4, where 1 is normal, 4 is urgent",
+      "priority_text"[string]: "Text description of priority (Normal, Medium, High, Urgent)",
+      "labels"[list of strings]: ["list", "of", "relevant", "tags"]
+    }
     Current task:
     %s
     User feedback:
