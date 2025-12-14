@@ -60,18 +60,6 @@ func New(telegramToken string, dbManager commands.DBManager) (*Bot, error) {
 	listCmd := commands.NewListCommand(todoistClient)
 	registry.Register(listCmd)
 
-	viewCmd := commands.NewViewCommand(todoistClient)
-	registry.Register(viewCmd)
-
-	updateCmd := commands.NewUpdateCommand(todoistClient)
-	registry.Register(updateCmd)
-
-	deleteCmd := commands.NewDeleteCommand(todoistClient)
-	registry.Register(deleteCmd)
-
-	deleteConfirmCmd := commands.NewDeleteConfirmCommand(todoistClient)
-	registry.Register(deleteConfirmCmd)
-
 	// Register discussion flow commands
 	setProjectCmd := commands.NewSetProjectCommand(todoistClient, dbManager)
 	registry.Register(setProjectCmd)
@@ -81,10 +69,6 @@ func New(telegramToken string, dbManager commands.DBManager) (*Bot, error) {
 
 	cancelCmd := commands.NewCancelCommand(dbManager)
 	registry.Register(cancelCmd)
-
-	// AI analysis command
-	analyzeCmd := commands.NewAnalyzeCommand(todoistClient, dbManager, aiClient)
-	registry.Register(analyzeCmd)
 
 	// Create task from discussion command
 	createTaskCmd := commands.NewCreateTaskCommand(todoistClient, dbManager, aiClient)
