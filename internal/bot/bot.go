@@ -40,8 +40,8 @@ func New(telegramToken string, dbManager commands.DBManager) (*Bot, error) {
 		return nil, fmt.Errorf("failed to create Todoist client: %w", err)
 	}
 
-	// Create AI client
-	aiClient, err := ai.NewClient()
+	// Create AI client - ИСПРАВЛЕНО: используем универсальную фабрику
+	aiClient, err := ai.NewClient() // вместо ai.NewOpenRouterClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AI client: %w", err)
 	}
