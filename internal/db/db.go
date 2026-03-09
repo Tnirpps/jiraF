@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log" // Добавляем импорт log
+	"log"
 	"os"
 	"time"
 
@@ -47,27 +47,12 @@ func (m *Manager) Close() error {
 }
 
 func (m *Manager) InitSchema(ctx context.Context) error {
-	// Пробуем несколько путей к файлу схемы
-	possiblePaths := []string{
-		"/app/internal/db/schema.sql",      // Docker контейнер (основной путь)
-		"internal/db/schema.sql",           // локальная разработка
-		"./schema.sql",                     // альтернативный
-	}
-
-	var schemaSQL []byte
-	var err error
-
-	for _, path := range possiblePaths {
-		schemaSQL, err = os.ReadFile(path)
-		if err == nil {
-			log.Printf("Schema loaded from: %s", path)
-			break
-		}
-	}
-
+	schemaSQL, err := os.ReadFile("internal/db/schema.sql")
 	if err != nil {
-		return fmt.Errorf("failed to read schema file. Tried paths: %v. Error: %w", possiblePaths, err)
+		return fmt.Errorf("failed to read schema file: %w", err)
 	}
+
+	log.Printf("Schema loaded from: internal/db/schema.sql")
 
 	_, err = m.db.ExecContext(ctx, string(schemaSQL))
 	if err != nil {

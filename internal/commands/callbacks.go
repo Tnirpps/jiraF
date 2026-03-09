@@ -124,7 +124,7 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 	}
 
 	if !isOwner {
-		callbackCfg := tgbotapi.NewCallback(callback.ID, "Только автор обсужения может создать задачу")
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Только автор обсуждения может создать задачу")
 		return &CallbackResponse{
 			CallbackConfig: &callbackCfg,
 			IsOwner:        false,
@@ -185,9 +185,14 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 		log.Printf("Error closing session: %v", err)
 	}
 
+	// ✅ Формируем правильную ссылку на задачу Todoist
+	taskURL := fmt.Sprintf("https://app.todoist.com/app/task/%s", resp.ID)
+
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "✅ Отлично! Создаю задачу.")
-	messageText := fmt.Sprintf("✅ **Задача создана**: [%s](%s)", task.Title.String, resp.URL)
+	messageText := fmt.Sprintf("✅ **Задача создана**: [%s](%s)", task.Title.String, taskURL)
 	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, messageText)
+	msg.ParseMode = "Markdown"
+
 	return &CallbackResponse{
 		CallbackConfig:  &callbackCfg,
 		IsOwner:         true,
@@ -245,7 +250,7 @@ func (h *CallbackHandler) handleEditCallback(callback *tgbotapi.CallbackQuery, s
 	// }
 
 	// Create acknowledgment for the callback
-	callbackCfg := tgbotapi.NewCallback(callback.ID, "✏️ Please reply to my next message with your edit instructions")
+	callbackCfg := tgbotapi.NewCallback(callback.ID, "✏️ Пожалуйста, ответьте на это сообщение с инструкциями по редактированию")
 
 	// In a real implementation, we would mark in the database that we're waiting for a reply for this session
 	// Something like: h.dbManager.SetEditMode(ctx, sessionID, true)
@@ -289,7 +294,7 @@ func (h *CallbackHandler) handleCancelCallback(callback *tgbotapi.CallbackQuery,
 	// 1. Delete the draft task if needed
 	// 2. Possibly close the session
 
-	callbackCfg := tgbotapi.NewCallback(callback.ID, "❌ Got it! Task creation canceled.")
+	callbackCfg := tgbotapi.NewCallback(callback.ID, "❌ Создание задачи отменено")
 	return &CallbackResponse{
 		CallbackConfig: &callbackCfg,
 		IsOwner:        true,

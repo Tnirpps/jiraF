@@ -9,21 +9,27 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/bot"
 	"github.com/user/telegram-bot/internal/commands"
 	"github.com/user/telegram-bot/internal/db"
+	"github.com/user/telegram-bot/internal/httpclient"
+	"github.com/user/telegram-bot/internal/todoist"
 )
 
 func main() {
+	// Загружаем .env файл
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Warning: .env file not found, using environment variables")
 	}
 
+	// Проверяем обязательные переменные окружения
 	telegramToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if telegramToken == "" {
 		log.Fatal("TELEGRAM_BOT_TOKEN is required")
 	}
 
+	// Инициализируем базу данных
 	dbManager, err := db.NewManager()
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
@@ -40,7 +46,32 @@ func main() {
 	// Assert that our db.Manager implements the commands.DBManager interface
 	var _ commands.DBManager = dbManager
 
-	b, err := bot.New(telegramToken, dbManager)
+	// Загружаем конфигурацию API
+	apiConfigs, err := httpclient.LoadConfig("configs/api.yaml")
+	if err != nil {
+		log.Fatalf("Failed to load API configuration: %v", err)
+	}
+
+	// Получаем конфигурацию OpenRouter
+	openrouterConfig, err := apiConfigs.GetClientConfig("openrouter")
+	if err != nil {
+		log.Fatalf("Failed to get OpenRouter configuration: %v", err)
+	}
+
+	// Создаем AI клиент
+	aiClient, err := ai.NewClient(openrouterConfig)
+	if err != nil {
+		log.Fatalf("Failed to create AI client: %v", err)
+	}
+
+	// Создаем Todoist клиент
+	todoistClient, err := todoist.NewClient()
+	if err != nil {
+		log.Fatalf("Failed to create Todoist client: %v", err)
+	}
+
+	// Создаем бота с AI и Todoist клиентами
+	b, err := bot.New(telegramToken, dbManager, aiClient, todoistClient)
 	if err != nil {
 		log.Fatalf("Error creating bot: %v", err)
 	}
@@ -52,6 +83,7 @@ func main() {
 		}
 	}()
 
+	// Ожидаем сигнал завершения
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
