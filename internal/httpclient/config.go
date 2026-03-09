@@ -3,6 +3,7 @@ package httpclient
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -80,22 +81,37 @@ func (c *APIConfigs) GetClientConfig(name string) (*ClientConfig, error) {
 		config.Headers["Authorization"] = authType + " " + token
 	}
 
-	// Replace environment variables in other header values
+	// Replace environment variables in all header values (including Authorization if not using authorization block)
 	for key, value := range config.Headers {
-		// Skip Authorization header as it's already processed
+		// Skip Authorization header if already processed via authorization block
 		if key == "Authorization" && config.Authorization != nil {
 			continue
 		}
 
-		// Look for ${VAR_NAME} pattern in values
-		if len(value) > 3 && value[0:2] == "${" && value[len(value)-1:] == "}" {
-			envName := value[2 : len(value)-1]
+		// Look for ${VAR_NAME} pattern anywhere in the value
+		for {
+			start := strings.Index(value, "${")
+			if start == -1 {
+				break // No more variables found
+			}
+
+			end := strings.Index(value[start:], "}")
+			if end == -1 {
+				break // No closing brace found
+			}
+			end = start + end
+
+			envName := value[start+2 : end]
 			envValue := os.Getenv(envName)
 			if envValue == "" {
 				return nil, fmt.Errorf("environment variable %s is required but not set", envName)
 			}
-			config.Headers[key] = envValue
+
+			// Replace the variable with its value
+			value = value[:start] + envValue + value[end+1:]
 		}
+
+		config.Headers[key] = value
 	}
 
 	return &config, nil
