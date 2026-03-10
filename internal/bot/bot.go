@@ -20,6 +20,7 @@ type Bot struct {
 	dbManager       commands.DBManager
 	callbackHandler *commands.CallbackHandler
 	aiClient        ai.Client
+	todoistClient   todoist.Client
 	wg              sync.WaitGroup
 	stopCh          chan struct{}
 
@@ -28,22 +29,10 @@ type Bot struct {
 	editMutex    sync.RWMutex
 }
 
-func New(telegramToken string, dbManager commands.DBManager) (*Bot, error) {
+func New(telegramToken string, dbManager commands.DBManager, aiClient ai.Client, todoistClient todoist.Client) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(telegramToken)
 	if err != nil {
 		return nil, err
-	}
-
-	// Create Todoist client
-	todoistClient, err := todoist.NewClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Todoist client: %w", err)
-	}
-
-	// Create AI client
-	aiClient, err := ai.NewClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create AI client: %w", err)
 	}
 
 	// Initialize command registry
@@ -83,6 +72,7 @@ func New(telegramToken string, dbManager commands.DBManager) (*Bot, error) {
 		dbManager:       dbManager,
 		callbackHandler: callbackHandler,
 		aiClient:        aiClient,
+		todoistClient:   todoistClient,
 		stopCh:          make(chan struct{}),
 		editSessions:    make(map[int64]string),
 	}, nil
@@ -168,12 +158,12 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 
 		editMsg := tgbotapi.NewEditMessageText(callback.Message.Chat.ID, callback.Message.MessageID, callback.Message.Text)
 		editMsg.ParseMode = "Markdown"
-		// Очищение разметки с кнопками
+		// Clear buttons
 		editMsg.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		}
 
-		// Отправка отредактированного сообщения без кнопок
+		// Send edited message without buttons
 		if _, err := b.api.Send(editMsg); err != nil {
 			log.Println("Error editing message:", err)
 			return
@@ -301,14 +291,7 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 	delete(b.editSessions, int64(message.ReplyToMessage.MessageID))
 	b.editMutex.Unlock()
 
-	// In a real implementation, we would:
-	// 1. Get the draft task from the database
-	// 2. Call the AI client's EditTask method
-	// 3. Update the task in the database
-	// 4. Show a new preview to the user
-
-	// PLACEHOLDER: Get draft task from database
-	// Example:
+	// Get draft task from database
 	sessionIDInt, _ := strconv.Atoi(sessionID)
 	ctx := context.Background()
 	draftTask, err := b.dbManager.GetDraftTask(ctx, sessionIDInt)

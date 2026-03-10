@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -50,6 +51,8 @@ func (m *Manager) InitSchema(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to read schema file: %w", err)
 	}
+
+	log.Printf("Schema loaded from: internal/db/schema.sql")
 
 	_, err = m.db.ExecContext(ctx, string(schemaSQL))
 	if err != nil {

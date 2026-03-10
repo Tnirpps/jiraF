@@ -27,148 +27,115 @@ type AnalyzedTask struct {
 	Labels       []string `json:"labels,omitempty"`
 }
 
-// YandexGPTRequest structure for YandexGPT API request
-type YandexGPTRequest struct {
-	ModelURI          string             `json:"modelUri"`
-	CompletionOptions *CompletionOptions `json:"completionOptions"`
-	Messages          []YandexGPTMessage `json:"messages"`
-}
-
-// YandexGPTMessage structure for YandexGPT message
-type YandexGPTMessage struct {
-	Role string `json:"role"`
-	Text string `json:"text"`
-}
-
-// CompletionOptions completion options for YandexGPT
-type CompletionOptions struct {
-	Stream      bool    `json:"stream"`
-	Temperature float64 `json:"temperature"`
-	MaxTokens   int     `json:"maxTokens"`
-}
-
-// YandexGPTResponse structure for YandexGPT API response
-type YandexGPTResponse struct {
-	Result *GPTResult `json:"result"`
-}
-
-// GPTResult result of processing
-type GPTResult struct {
-	Alternatives []Alternative `json:"alternatives"`
-	Usage        Usage         `json:"usage"`
-	ModelVersion string        `json:"modelVersion"`
-}
-
-// Alternative alternative response
-type Alternative struct {
-	Message MessageContent `json:"message"`
-	Status  string         `json:"status"`
-}
-
-// MessageContent message content
-type MessageContent struct {
-	Role string `json:"role"`
-	Text string `json:"text"`
-}
-type CompletionTokensDetails struct {
-	ReasoningTokens string `json:"reasoningTokens"`
-}
-
-// Usage usage statistics
-type Usage struct {
-	InputTextTokens         string                  `json:"inputTextTokens"`
-	CompletionTokens        string                  `json:"completionTokens"`
-	TotalTokens             string                  `json:"totalTokens"`
-	CompletionTokensDetails CompletionTokensDetails `json:"completionTokensDetails"`
-}
-
-// AIClient is the implementation for AI analysis with YandexGPT
+// AIClient клиент для работы с OpenRouter AI
 type AIClient struct {
 	httpClient       *httpclient.Client
-	modelURI         string
+	model            string
 	createTaskPrompt string
 	editTaskPrompt   string
 }
 
-// NewClient creates a new AI client for YandexGPT
-func NewClient() (Client, error) {
-	// Load configuration from YAML file
-	configs, err := httpclient.LoadConfig("configs/api.yaml")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load API configuration: %w", err)
-	}
-
-	// Get client configuration
-	clientConfig, err := configs.GetClientConfig("yandex_gpt")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get YandexGPT client configuration: %w", err)
-	}
-
-	// Create the HTTP client
-	client, err := clientConfig.CreateClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
-	}
-
+// NewClient создает новый AI клиент (OpenRouter)
+// Принимает конфигурацию как аргумент для упрощения тестирования
+func NewClient(config *httpclient.ClientConfig) (Client, error) {
+	// Загружаем настройки AI
 	aiSettings, err := LoadAiSettings("configs/ai_settings.yaml")
 	if err != nil {
 		log.Printf("Error loading AI settings: %v. Using default settings.", err)
 		return nil, fmt.Errorf("failed to load AI settings: %w", err)
 	}
 
-	folderID := os.Getenv("YANDEX_FOLDER_ID")
-	if folderID == "" {
-		return nil, fmt.Errorf("YANDEX_FOLDER_ID environment variable is required")
+	// Создаем HTTP клиент из переданной конфигурации
+	client, err := config.CreateClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
+	}
+
+	// Получаем модель из env (или используем gpt-4o-mini по умолчанию)
+	model := os.Getenv("OPENROUTER_MODEL")
+	if model == "" {
+		model = "openai/gpt-4o-mini"
 	}
 
 	return &AIClient{
 		httpClient:       client,
-		modelURI:         fmt.Sprintf(aiSettings.ModelURLTemplate, folderID),
+		model:            model,
 		createTaskPrompt: aiSettings.CreateTaskPrompt,
 		editTaskPrompt:   aiSettings.EditTaskPrompt,
 	}, nil
 }
 
-// AnalyzeDiscussion analyzes messages using YandexGPT to extract task information
+// OpenRouter запрос
+type OpenRouterRequest struct {
+	Model    string              `json:"model"`
+	Messages []OpenRouterMessage `json:"messages"`
+	Stream   bool                `json:"stream"`
+	Options  *OpenRouterOptions  `json:"options,omitempty"`
+}
+
+type OpenRouterMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type OpenRouterOptions struct {
+	Temperature float64 `json:"temperature"`
+	MaxTokens   int     `json:"max_tokens"`
+	TopP        float64 `json:"top_p,omitempty"`
+}
+
+type OpenRouterResponse struct {
+	Choices []OpenRouterChoice `json:"choices"`
+	Usage   OpenRouterUsage    `json:"usage"`
+	Model   string             `json:"model"`
+}
+
+type OpenRouterChoice struct {
+	Message      OpenRouterMessage `json:"message"`
+	FinishReason string            `json:"finish_reason"`
+}
+
+type OpenRouterUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
+// AnalyzeDiscussion анализирует сообщения используя OpenRouter AI
 func (c *AIClient) AnalyzeDiscussion(ctx context.Context, messages []string) (*AnalyzedTask, error) {
 	if len(messages) == 0 {
 		return nil, fmt.Errorf("no messages to analyze")
 	}
 
-	// Join all messages into a single text
 	discussionText := strings.Join(messages, "\n")
+	fullPrompt := c.createTaskPrompt + "\nДиалог для анализа:\n" + discussionText + "\n\nОтвет в JSON формате:"
 
-	// Create the full prompt
-	fullPrompt := c.createTaskPrompt + "\n" + discussionText + "\n\nResponse in JSON format:"
-
-	// Prepare request to YandexGPT
-	request := YandexGPTRequest{
-		ModelURI: c.modelURI,
-		CompletionOptions: &CompletionOptions{
-			Stream:      false,
-			Temperature: 0.3, // Low temperature for more deterministic responses
-			MaxTokens:   2000,
-		},
-		Messages: []YandexGPTMessage{
+	request := OpenRouterRequest{
+		Model: c.model,
+		Messages: []OpenRouterMessage{
 			{
-				Role: "user",
-				Text: fullPrompt,
+				Role:    "user",
+				Content: fullPrompt,
 			},
 		},
+		Stream: false,
+		Options: &OpenRouterOptions{
+			Temperature: 0.3,
+			MaxTokens:   2000,
+			TopP:        0.9,
+		},
 	}
 
-	// Make API call
-	var response YandexGPTResponse
-	err := c.httpClient.Post(ctx, "completion", request, &response)
+	var response OpenRouterResponse
+	err := c.httpClient.Post(ctx, "chat/completions", request, &response)
 	if err != nil {
-		return nil, fmt.Errorf("YandexGPT API error: %w", err)
+		return nil, fmt.Errorf("OpenRouter API error: %w", err)
 	}
 
-	// Parse the response
-	return c.parseGPTResponse(&response)
+	return c.parseOpenRouterResponse(&response)
 }
 
-// EditTask edits an existing task based on user feedback using YandexGPT
+// EditTask редактирует задачу используя OpenRouter AI
 func (c *AIClient) EditTask(ctx context.Context, task *AnalyzedTask, userFeedback string) (*AnalyzedTask, error) {
 	if task == nil {
 		return nil, fmt.Errorf("no task to edit")
@@ -178,54 +145,48 @@ func (c *AIClient) EditTask(ctx context.Context, task *AnalyzedTask, userFeedbac
 		return nil, fmt.Errorf("no feedback provided for editing")
 	}
 
-	// Format current task for the prompt
 	taskJSON, err := json.MarshalIndent(task, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal task: %w", err)
 	}
 
-	// Create the full prompt
 	fullPrompt := fmt.Sprintf(c.editTaskPrompt, string(taskJSON), userFeedback)
-	fmt.Printf("[full gpt promt]: %s", fullPrompt)
+	log.Printf("[OpenRouter edit prompt]: %s", fullPrompt)
 
-	// Prepare request to YandexGPT
-	request := YandexGPTRequest{
-		ModelURI: c.modelURI,
-		CompletionOptions: &CompletionOptions{
-			Stream:      false,
-			Temperature: 0.3,
-			MaxTokens:   2000,
-		},
-		Messages: []YandexGPTMessage{
+	request := OpenRouterRequest{
+		Model: c.model,
+		Messages: []OpenRouterMessage{
 			{
-				Role: "user",
-				Text: fullPrompt,
+				Role:    "user",
+				Content: fullPrompt,
 			},
 		},
+		Stream: false,
+		Options: &OpenRouterOptions{
+			Temperature: 0.3,
+			MaxTokens:   2000,
+			TopP:        0.9,
+		},
 	}
 
-	// Make API call
-	var response YandexGPTResponse
-	err = c.httpClient.Post(ctx, "completion", request, &response)
+	var response OpenRouterResponse
+	err = c.httpClient.Post(ctx, "chat/completions", request, &response)
 	if err != nil {
-		return nil, fmt.Errorf("YandexGPT API error: %w", err)
+		return nil, fmt.Errorf("OpenRouter API error: %w", err)
 	}
 
-	// Parse the response
-	return c.parseGPTResponse(&response)
+	return c.parseOpenRouterResponse(&response)
 }
 
-// parseGPTResponse parses YandexGPT response into AnalyzedTask
-func (c *AIClient) parseGPTResponse(response *YandexGPTResponse) (*AnalyzedTask, error) {
-	if response.Result == nil || len(response.Result.Alternatives) == 0 {
-		return nil, fmt.Errorf("no alternatives in response")
+// parseOpenRouterResponse парсит ответ OpenRouter
+func (c *AIClient) parseOpenRouterResponse(response *OpenRouterResponse) (*AnalyzedTask, error) {
+	if len(response.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
 	}
 
-	// Get the text from the first alternative
-	text := response.Result.Alternatives[0].Message.Text
-	log.Printf("YandexGPT raw response: %s", text)
+	text := response.Choices[0].Message.Content
+	log.Printf("OpenRouter raw response: %s", text)
 
-	// Try to extract JSON from the response (model might add extra text)
 	jsonStart := strings.Index(text, "{")
 	jsonEnd := strings.LastIndex(text, "}")
 	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
@@ -234,45 +195,44 @@ func (c *AIClient) parseGPTResponse(response *YandexGPTResponse) (*AnalyzedTask,
 
 	jsonStr := text[jsonStart : jsonEnd+1]
 
-	// Parse JSON
 	var task AnalyzedTask
 	if err := json.Unmarshal([]byte(jsonStr), &task); err != nil {
 		log.Printf("Failed to parse JSON: %s, error: %v", jsonStr, err)
 		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
 	}
 
-	// Validate required fields
+	return c.validateAndCompleteTask(&task), nil
+}
+
+// validateAndCompleteTask валидирует и заполняет значения по умолчанию
+func (c *AIClient) validateAndCompleteTask(task *AnalyzedTask) *AnalyzedTask {
 	if task.Title == "" {
-		return nil, fmt.Errorf("task title is required")
+		task.Title = "Без названия"
 	}
 
-	// Ensure description is not empty
 	if task.Description == "" {
-		task.Description = "No description provided"
+		task.Description = "Описание не предоставлено"
 	}
 
-	// Set priority text if not provided
 	if task.PriorityText == "" {
 		priorityMap := map[int]string{
-			1: "Normal",
-			2: "Medium",
-			3: "High",
-			4: "Urgent",
+			1: "Низкий",
+			2: "Средний",
+			3: "Высокий",
+			4: "Срочный",
 		}
 		if text, ok := priorityMap[task.Priority]; ok {
 			task.PriorityText = text
 		} else {
 			task.Priority = 1
-			task.PriorityText = "Normal"
+			task.PriorityText = "Низкий"
 		}
 	}
 
-	// Validate priority range
 	if task.Priority < 1 || task.Priority > 4 {
 		task.Priority = 1
 	}
 
-	// Ensure labels is not nil
 	if task.Labels == nil {
 		task.Labels = []string{}
 	}
@@ -280,5 +240,5 @@ func (c *AIClient) parseGPTResponse(response *YandexGPTResponse) (*AnalyzedTask,
 	log.Printf("Parsed task: Title=%s, Priority=%d, Due=%s",
 		task.Title, task.Priority, task.DueDate)
 
-	return &task, nil
+	return task
 }

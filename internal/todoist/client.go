@@ -85,6 +85,18 @@ type Project struct {
 	ParentID       string `json:"parent_id,omitempty"`
 }
 
+// ProjectsResponse represents the wrapped response from Todoist projects endpoint
+type ProjectsResponse struct {
+	Results    []Project `json:"results"`
+	NextCursor *string   `json:"next_cursor"`
+}
+
+// TasksResponse represents the wrapped response from Todoist tasks endpoint
+type TasksResponse struct {
+	Results    []*TaskResponse `json:"results"`
+	NextCursor *string         `json:"next_cursor"`
+}
+
 // Client defines the interface for interacting with the Todoist API
 type Client interface {
 	// CreateTask creates a new task in Todoist
@@ -166,13 +178,13 @@ func (c *TodoistClient) GetTasks(ctx context.Context, projectID string) ([]*Task
 		path += "?project_id=" + projectID
 	}
 
-	var tasks []*TaskResponse
-	err := c.httpClient.Get(ctx, path, &tasks)
+	var resp TasksResponse
+	err := c.httpClient.Get(ctx, path, &resp)
 	if err != nil {
 		return nil, fmt.Errorf("error getting tasks: %w", err)
 	}
 
-	return tasks, nil
+	return resp.Results, nil
 }
 
 // GetTask returns a single task by ID
@@ -226,11 +238,11 @@ func (c *TodoistClient) DeleteTask(ctx context.Context, taskID string) error {
 
 // GetProjects returns the list of projects
 func (c *TodoistClient) GetProjects(ctx context.Context) ([]Project, error) {
-	var projects []Project
-	err := c.httpClient.Get(ctx, "projects", &projects)
+	var resp ProjectsResponse
+	err := c.httpClient.Get(ctx, "projects", &resp)
 	if err != nil {
 		return nil, fmt.Errorf("error getting projects: %w", err)
 	}
 
-	return projects, nil
+	return resp.Results, nil
 }
