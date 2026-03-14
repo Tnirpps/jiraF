@@ -55,7 +55,9 @@
 Для изменения задачи необходимо ОТВЕТИТЬ на сообщение бота с черновиком.
 
 <img src="images/doubleTask.png" alt="alt text" width="490">
+
 ---
+
 ### `/cancel` 
 Отмена начала обсуждения `/start_discussion`
 
