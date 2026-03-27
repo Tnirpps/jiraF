@@ -185,7 +185,7 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 		log.Printf("Error closing session: %v", err)
 	}
 
-	// ✅ Формируем правильную ссылку на задачу Todoist
+	// Формируем правильную ссылку на задачу Todoist
 	taskURL := fmt.Sprintf("https://app.todoist.com/app/task/%s", resp.ID)
 
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "✅ Отлично! Создаю задачу.")
