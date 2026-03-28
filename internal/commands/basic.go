@@ -4,6 +4,26 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+func GetMainKeyboard() tgbotapi.ReplyKeyboardMarkup {
+	keyboard := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📁 Выбрать проект"),
+			tgbotapi.NewKeyboardButton("💬 Начать обсуждение"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("✅ Создать задачу"),
+			tgbotapi.NewKeyboardButton("❌ Отменить"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📋 Список задач"),
+			tgbotapi.NewKeyboardButton("❓ Помощь"),
+		),
+	)
+	keyboard.ResizeKeyboard = true
+	keyboard.OneTimeKeyboard = false
+	return keyboard
+}
+
 // StartCommand handles the /start command
 type StartCommand struct {
 	registry *Registry
@@ -28,35 +48,24 @@ func (c *StartCommand) Description() string {
 
 func (c *StartCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig {
 	welcomeText := `🤖 Привет! Я AI Task Assistant JiraF 🤖
+
 Я помогаю превращать обсуждения в чате в готовые задачи.
 
-🔧 Что я умею
+🔧 Что я умею:
 — анализировать обсуждение
 — формировать черновик задачи
 — отправлять задачу в Todoist
 
-Как пользоваться:
+📋 Как пользоваться:
 1️⃣ Выбери проект
-/set_project <id>  — установить проект Todoist для этого чата
-
 2️⃣ Начни обсуждение
-/start_discussion — начать сбор сообщений для создания задачи
-Продолжайте обсуждать задачу в чате — я всё запомню.
+3️⃣ Создай задачу из контекста обсуждения
 
-3️⃣ Создай задачу
-/create_task — создать задачу из контекста обсуждения
-Я проанализирую обсуждение и предложу готовую задачу.
-
-🧩 Полный список команд
-/set_project <id> — выбрать проект Todoist для этого чата
-/start_discussion — начать сбор сообщений для создания задачи
-/cancel — отменить текущее обсуждение
-/create_task — создать задачу на основе обсуждения
-/help — показать список доступных команд
-`
+Нажмите на любую кнопку ниже для быстрого доступа:`
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, welcomeText)
-	// msg.ParseMode = "Markdown"
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = GetMainKeyboard()
 	return &msg
 }
 
@@ -83,14 +92,21 @@ func (c *HelpCommand) Description() string {
 }
 
 func (c *HelpCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig {
-	helpText := `🧩 Полный список команд
-/set_project <id> — выбрать проект Todoist для этого чата
-/start_discussion — начать сбор сообщений для создания задачи
-/cancel — отменить текущее обсуждение
-/create_task — создать задачу на основе обсуждения
-/help — показать список доступных команд`
+	// ✅ ИСПРАВЛЕНО: Убраны символы < > которые ломают Markdown
+	helpText := `🧩 Полный список команд:
+
+📁 /set_project — выбрать проект Todoist для этого чата
+💬 /start_discussion — начать сбор сообщений для создания задачи
+✅ /create_task — создать задачу на основе обсуждения
+❌ /cancel — отменить текущее обсуждение
+📋 /list — показать список задач
+❓ /help — показать эту справку
+
+Используйте кнопки ниже для быстрого доступа:`
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, helpText)
+	// ✅ ИСПРАВЛЕНО: Убран ParseMode чтобы не было ошибок парсинга
 	// msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = GetMainKeyboard()
 	return &msg
 }
