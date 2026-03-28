@@ -1,69 +1,145 @@
 # jiraF
 
-A Telegram bot that integrates with Todoist for task management. It provides a discussion workflow that collects messages and creates tasks from them.
+Telegram-бот для интеграции с Todoist, преобразующий обсуждения в чате в структурированные задачи.
 
-## Features
+## 📖 Документация
 
-- Set a Todoist project for each chat
-- Start discussion sessions to collect messages
-- Create tasks from discussion context
-- Store message history in PostgreSQL database
+| Документ | Описание |
+|----------|----------|
+| [ADR.md](ADR.md) | Архитектурные решения и обоснования |
+| [RUNBOOK.md](RUNBOOK.md) | Инструкции по эксплуатации и реагированию на инциденты |
+| [DECISION_LOG.md](DECISION_LOG.md) | Журнал ключевых решений проекта |
+| [GLOSSARY.md](GLOSSARY.md) | Словарь терминов и сокращений |
 
-## Setup
+---
 
-### Environment Variables
+## Возможности
 
-Copy the example environment file and fill in your values:
+- **Сессии обсуждения** — сбор контекста переписки между `/start_discussion` и `/create_task`
+- **AI-суммаризация** — автоматическое формирование черновика задачи (заголовок, описание, срок, приоритет)
+- **Предпросмотр** — подтверждение или редактирование черновика перед созданием задачи
+- **Todoist интеграция** — создание задач в указанном проекте
+- **История сообщений** — хранение в PostgreSQL для аудита и воспроизводимости
+
+---
+
+## Быстрый старт
+
+### 1. Настройка окружения
 
 ```bash
 cp .env.example .env
 ```
 
-Required variables:
-- `TELEGRAM_BOT_TOKEN`: Get from [@BotFather](https://t.me/BotFather)
-- `TODOIST_API_TOKEN`: Get from [Todoist Integrations](https://todoist.com/app/settings/integrations)
-- `DATABASE_URL`: PostgreSQL connection string
+**Требуемые переменные:**
 
-### Run with Docker
+| Переменная | Описание |
+|------------|----------|
+| `TELEGRAM_BOT_TOKEN` | Токен от [@BotFather](https://t.me/BotFather) |
+| `TODOIST_API_TOKEN` | Токен из [Todoist Integrations](https://todoist.com/app/settings/integrations) |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `AI_PROVIDER` | Провайдер AI: `yandex` или `openrouter` |
 
-The easiest way to run the bot is with Docker Compose:
+### 2. Запуск
 
 ```bash
 docker-compose up -d
 ```
 
-This will start:
-- PostgreSQL database with the required schema
-- Telegram bot connected to the database
+Запустятся:
+- PostgreSQL с необходимой схемой
+- Telegram-бот
 
-## Available Commands
+### 3. Проверка
 
-- `/start` - Get started with the bot
-- `/help` - Display available commands
-- `/set_project <id|url>` - Set Todoist project for the chat
-- `/start_discussion` - Start collecting messages
-- `/cancel` - Cancel current discussion
+```bash
+docker-compose ps
+docker-compose logs bot
+```
 
-## Project Structure
+Отправьте `/help` боту в Telegram.
 
-- `cmd/bot/main.go`: Application entry point
-- `internal/bot/`: Bot core implementation
-- `internal/commands/`: Command implementations
-- `internal/todoist/`: Todoist API client
-- `internal/db/`: Database models and operations
+---
 
-## Development
+## Команды
 
-### Running Tests
+| Команда | Описание |
+|---------|----------|
+| `/start` | Начало работы с ботом |
+| `/help` | Список доступных команд |
+| `/set_project <id|url>` | Установить Todoist-проект для чата |
+| `/start_discussion` | Начать сбор сообщений |
+| `/cancel` | Отменить текущее обсуждение |
+| `/create_task` | Создать задачу из обсуждения |
+
+---
+
+## ⚠️ Важные ограничения
+
+1. **Нельзя запускать два экземпляра бота** с одним токеном (конфликт long polling)
+2. **Telegram может быть заблокирован** в некоторых регионах — выбирайте сервер в другой локации (EU, Asia)
+
+Подробности: [RUNBOOK.md](RUNBOOK.md#1-запуск-бота)
+
+---
+
+## Архитектура
+
+**Стек:**
+- Go 1.21
+- PostgreSQL 14
+- Telegram Bot API (long polling)
+- Todoist API (REST v2)
+- AI API (YandexGPT / OpenRouter)
+
+**Схема БД:**
+- `chats`, `chat_settings`
+- `sessions` (с `owner_id` для контроля доступа)
+- `messages`
+- `draft_tasks`, `created_tasks`
+- `audit_edits`
+
+Подробности: [ADR.md](ADR.md)
+
+---
+
+## Разработка
+
+### Тесты
 
 ```bash
 go test ./...
 ```
 
-### Database Schema
+### Структура проекта
 
-The database schema is defined in `internal/db/schema.sql` and includes tables for:
-- Chats and their settings
-- Discussion sessions
-- Messages within sessions
-- Tasks created from discussions
+```
+jiraF/
+├── cmd/bot/main.go        # Точка входа
+├── internal/
+│   ├── bot/               # Ядро бота
+│   ├── commands/          # Обработчики команд
+│   ├── ai/                # AI-клиент (YandexGPT, OpenRouter)
+│   ├── todoist/           # Todoist API клиент
+│   ├── db/                # Модели и репозиторий БД
+│   └── httpclient/        # HTTP-клиент для внешних API
+└── configs/               # Конфигурационные файлы
+```
+
+---
+
+## TODO
+
+### Features
+- [ ] Webhook вместо long polling (production)
+- [ ] Автоматический маппинг assignee в Todoist
+- [ ] Полная валидация ошибок AI API
+
+### Improvements
+- [ ] Улучшенный парсинг RU-дат с AI
+- [ ] Шаблоны задач для типовых обсуждений
+- [ ] Поддержка вложений (файлы, изображения)
+
+### DevOps
+- [ ] CI/CD пайплайн
+- [ ] Автоматические тесты с coverage
