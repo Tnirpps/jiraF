@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/user/telegram-bot/internal/httpclient"
@@ -26,6 +27,7 @@ type AnalyzedTask struct {
 	Labels       []string `json:"labels,omitempty"`
 }
 
+// AIClient клиент для работы с OpenRouter AI
 type AIClient struct {
 	httpClient       *httpclient.Client
 	model            string
@@ -33,19 +35,24 @@ type AIClient struct {
 	editTaskPrompt   string
 }
 
+// NewClient создает новый AI клиент (OpenRouter)
+// Принимает конфигурацию как аргумент для упрощения тестирования
 func NewClient(config *httpclient.ClientConfig) (Client, error) {
+	// Загружаем настройки AI
 	aiSettings, err := LoadAiSettings("configs/ai_settings.yaml")
 	if err != nil {
 		log.Printf("Error loading AI settings: %v. Using default settings.", err)
 		return nil, fmt.Errorf("failed to load AI settings: %w", err)
 	}
 
+	// Создаем HTTP клиент из переданной конфигурации
 	client, err := config.CreateClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
 
-	model := aiSettings.Model
+	// Получаем модель из env (или используем gpt-4o-mini по умолчанию)
+	model := os.Getenv("OPENROUTER_MODEL")
 	if model == "" {
 		model = "openai/gpt-4o-mini"
 	}
@@ -94,6 +101,7 @@ type OpenRouterUsage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
+// AnalyzeDiscussion анализирует сообщения используя OpenRouter AI
 func (c *AIClient) AnalyzeDiscussion(ctx context.Context, messages []string) (*AnalyzedTask, error) {
 	if len(messages) == 0 {
 		return nil, fmt.Errorf("no messages to analyze")
@@ -127,6 +135,7 @@ func (c *AIClient) AnalyzeDiscussion(ctx context.Context, messages []string) (*A
 	return c.parseOpenRouterResponse(&response)
 }
 
+// EditTask редактирует задачу используя OpenRouter AI
 func (c *AIClient) EditTask(ctx context.Context, task *AnalyzedTask, userFeedback string) (*AnalyzedTask, error) {
 	if task == nil {
 		return nil, fmt.Errorf("no task to edit")
@@ -169,6 +178,7 @@ func (c *AIClient) EditTask(ctx context.Context, task *AnalyzedTask, userFeedbac
 	return c.parseOpenRouterResponse(&response)
 }
 
+// parseOpenRouterResponse парсит ответ OpenRouter
 func (c *AIClient) parseOpenRouterResponse(response *OpenRouterResponse) (*AnalyzedTask, error) {
 	if len(response.Choices) == 0 {
 		return nil, fmt.Errorf("no choices in response")
