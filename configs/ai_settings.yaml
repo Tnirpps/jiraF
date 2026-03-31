@@ -1,5 +1,5 @@
-gpt:
-  model_url_template: gpt://%s/yandexgpt-lite
+openrouter:
+  model: openai/gpt-4o-mini
   create_task_prompt: |-
     You are a task management assistant. Analyze the dialog and extract information for a Todoist task.
     Response requirements:
@@ -8,12 +8,12 @@ gpt:
     3. Use Russian language for fields
     JSON format:
     {
-      "title"[string]: "Brief, informative task title (max 100 characters)",
-      "description"[string]: "Detailed task description, including all important details from the discussion",
+      "title": "Brief, informative task title (max 100 characters)",
+      "description": "Detailed task description, including all important details from the discussion",
       "due_date": "Due date strictly in YYYY-MM-DD format. If no due date mentioned, try to guess how hard the task is",
-      "priority"[integer]: "Priority from 1 to 4, where 1 is normal, 4 is urgent",
-      "priority_text"[string]: "Text description of priority (Normal, Medium, High, Urgent)",
-      "labels"[list of strings]: ["list", "of", "relevant", "tags"]
+      "priority": "Priority from 1 to 4, where 1 is normal, 4 is urgent",
+      "priority_text": "Text description of priority (Normal, Medium, High, Urgent)",
+      "labels": ["list", "of", "relevant", "tags"]
     }
     Rules:
     - Title should be specific and informative
@@ -30,12 +30,12 @@ gpt:
     4. Use Russian language for fields
     Task format is JSON:
     {
-      "title"[string]: "Brief, informative task title (max 100 characters)",
-      "description"[string]: "Detailed task description, including all important details from the discussion",
+      "title": "Brief, informative task title (max 100 characters)",
+      "description": "Detailed task description, including all important details from the discussion",
       "due_date": "Due date strictly in YYYY-MM-DD format.",
-      "priority"[integer]: "Priority from 1 to 4, where 1 is normal, 4 is urgent",
-      "priority_text"[string]: "Text description of priority (Normal, Medium, High, Urgent)",
-      "labels"[list of strings]: ["list", "of", "relevant", "tags"]
+      "priority": "Priority from 1 to 4, where 1 is normal, 4 is urgent",
+      "priority_text": "Text description of priority (Normal, Medium, High, Urgent)",
+      "labels": ["list", "of", "relevant", "tags"]
     }
     Current task:
     %s
