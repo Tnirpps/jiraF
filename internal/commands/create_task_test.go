@@ -34,6 +34,8 @@ func (m *MockAIClient) EditTask(ctx context.Context, task *ai.AnalyzedTask, user
 	return args.Get(0).(*ai.AnalyzedTask), args.Error(1)
 }
 
+// Tests the CreateTaskCommand execution when there is an active discussion session
+// Verifies that a task preview is created with correct buttons and formatting
 func TestCreateTaskCommand_Execute(t *testing.T) {
 	// Create mock dependencies
 	mockDB := new(MockDBManager)
@@ -43,7 +45,7 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 	// Create command
 	cmd := NewCreateTaskCommand(mockTodoist, mockDB, mockAI)
 
-	// Test case: Active session with messages
+	// Tests task preview creation from an active discussion with messages
 	t.Run("Create task preview", func(t *testing.T) {
 		// Set up mocks
 		mockDB.On("HasActiveSession", mock.Anything, int64(123)).Return(true, nil)
@@ -80,7 +82,7 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 		// Mock project ID
 		mockDB.On("GetTodoistProjectID", mock.Anything, int64(123)).Return("project123", nil)
 
-		// Mock AI analysis
+		// Mock AI analysis - with formatted messages (as in real code)
 		analyzedTask := &ai.AnalyzedTask{
 			Title:        "Implement NLP feature",
 			Description:  "Task details from discussion",
@@ -88,10 +90,13 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 			Priority:     3,
 			PriorityText: "Высокий",
 		}
+
+		// ✅ Expect formatted messages (with username and timestamp)
 		mockAI.On("AnalyzeDiscussion", mock.Anything, []string{
-			"Let's create a task for implementing the NLP feature",
-			"It should be done by Friday",
-			"This is high priority"}).Return(analyzedTask, nil)
+			"Unknown Author, [0001-01-01 00:00:00]: Let's create a task for implementing the NLP feature",
+			"Unknown Author, [0001-01-01 00:00:00]: It should be done by Friday",
+			"Unknown Author, [0001-01-01 00:00:00]: This is high priority",
+		}).Return(analyzedTask, nil)
 
 		// Mock saving draft task
 		mockDB.On("SaveDraftTask", mock.Anything, 42, "Implement NLP feature", "Task details from discussion",
@@ -103,7 +108,7 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 				ID: 123,
 			},
 			From: &tgbotapi.User{
-				ID: 456, // Add sender ID for ownership verification
+				ID: 456,
 			},
 		}
 
@@ -113,23 +118,23 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 		// Execute the command
 		result := cmd.Execute(message)
 
-		// Assertions
+		// Assertions - ✅ Fixed to Russian text
 		assert.NotNil(t, result)
-		assert.Contains(t, result.Text, "Draft Task Preview")
+		assert.Contains(t, result.Text, "Черновик задачи готов")
 		assert.Contains(t, result.Text, "Implement NLP feature")
-		assert.Contains(t, result.Text, "*Priority:* Высокий")
+		assert.Contains(t, result.Text, "*Приоритет:* Высокий")
 
 		// Check that the message has a reply markup with buttons
 		markup, ok := result.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup)
 		assert.True(t, ok)
-		assert.Len(t, markup.InlineKeyboard, 1)                    // One row
-		assert.Len(t, markup.InlineKeyboard[0], 3)                 // Three buttons
-		assert.Contains(t, markup.InlineKeyboard[0][0].Text, "✅")  // Confirm button
-		assert.Contains(t, markup.InlineKeyboard[0][1].Text, "✏️") // Edit button
-		assert.Contains(t, markup.InlineKeyboard[0][2].Text, "❌")  // Cancel button
+		assert.Len(t, markup.InlineKeyboard, 1)
+		assert.Len(t, markup.InlineKeyboard[0], 3)
+		assert.Contains(t, markup.InlineKeyboard[0][0].Text, "✅")
+		assert.Contains(t, markup.InlineKeyboard[0][1].Text, "✏️")
+		assert.Contains(t, markup.InlineKeyboard[0][2].Text, "❌")
 	})
 
-	// Test case: No active session
+	// Tests behavior when user tries to create task without active discussion session
 	t.Run("No active session", func(t *testing.T) {
 		mockDB.On("HasActiveSession", mock.Anything, int64(456)).Return(false, nil)
 
@@ -138,17 +143,18 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 				ID: 456,
 			},
 			From: &tgbotapi.User{
-				ID: 789, // Add sender ID
+				ID: 789,
 			},
 		}
 
 		result := cmd.Execute(message)
 
 		assert.NotNil(t, result)
-		assert.Contains(t, result.Text, "No active discussion")
+		assert.Contains(t, result.Text, "Нет активного обсуждения")
 	})
 }
 
+// Tests the conversion of human-readable dates to ISO format (YYYY-MM-DD)
 func TestCreateTaskCommand_ConvertToDueISO(t *testing.T) {
 	// Create command with empty mocks
 	mockDB := new(MockDBManager)
@@ -199,6 +205,8 @@ func TestCreateTaskCommand_ConvertToDueISO(t *testing.T) {
 	}
 }
 
+// Tests the extraction of assignee information from message text
+// Checks mentions (@username), Russian phrases ("назначить", "ответственный"), and empty cases
 func TestCreateTaskCommand_ExtractAssignee(t *testing.T) {
 	// Create command with empty mocks
 	mockDB := new(MockDBManager)

@@ -9,7 +9,7 @@ import (
 	"github.com/user/telegram-bot/internal/todoist"
 )
 
-// Mock TodoistClient for testing
+// MockTodoistClient for testing
 type MockTodoistClient struct {
 	mock.Mock
 }
@@ -58,15 +58,14 @@ func (m *MockTodoistClient) DeleteTask(ctx context.Context, taskID string) error
 	return args.Error(0)
 }
 
-// MockDBManager is now defined in test_helpers.go
-
+// Tests successful execution of SetProjectCommand when a valid project ID is provided
+// Verifies that the project ID is saved to the database and confirmation message is returned
 func TestSetProjectCommand_Execute_Success(t *testing.T) {
 	// Create mocks
 	mockTodoistClient := new(MockTodoistClient)
 	mockDBManager := new(MockDBManager)
 
 	// Create command
-	// Create command with the interface
 	cmd := NewSetProjectCommand(mockTodoistClient, mockDBManager)
 
 	// Test data
@@ -88,14 +87,15 @@ func TestSetProjectCommand_Execute_Success(t *testing.T) {
 	// Execute command
 	response := cmd.Execute(message)
 
-	// Assert response
-	assert.Contains(t, response.Text, "Project ID set to: "+projectID)
+	assert.Contains(t, response.Text, "Для этого чата установлен проект Todoist: "+projectID)
 
 	// Verify mocks
 	mockTodoistClient.AssertExpectations(t)
 	mockDBManager.AssertExpectations(t)
 }
 
+// Tests SetProjectCommand behavior when an invalid project ID is provided
+// Verifies that the command rejects the ID if it doesn't exist in Todoist projects list
 func TestSetProjectCommand_Execute_InvalidProject(t *testing.T) {
 	// Create mocks
 	mockTodoistClient := new(MockTodoistClient)
@@ -119,14 +119,15 @@ func TestSetProjectCommand_Execute_InvalidProject(t *testing.T) {
 	// Execute command
 	response := cmd.Execute(message)
 
-	// Assert response
-	assert.Contains(t, response.Text, "Invalid project ID")
+	assert.Contains(t, response.Text, "Неверный ID")
 
 	// Verify mocks
 	mockTodoistClient.AssertExpectations(t)
 	mockDBManager.AssertNotCalled(t, "SetTodoistProjectID")
 }
 
+// Tests SetProjectCommand ability to extract project ID from a Todoist URL
+// Verifies that the command correctly parses the ID from URL format and saves it
 func TestSetProjectCommand_Execute_ExtractProjectIDFromURL(t *testing.T) {
 	// Create mocks
 	mockTodoistClient := new(MockTodoistClient)
@@ -154,9 +155,8 @@ func TestSetProjectCommand_Execute_ExtractProjectIDFromURL(t *testing.T) {
 
 	// Execute command
 	response := cmd.Execute(message)
-
-	// Assert response
-	assert.Contains(t, response.Text, "Project ID set to: "+projectID)
+	
+	assert.Contains(t, response.Text, "Для этого чата установлен проект Todoist: "+projectID)
 
 	// Verify mocks
 	mockTodoistClient.AssertExpectations(t)

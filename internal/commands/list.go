@@ -28,7 +28,7 @@ func (c *ListCommand) Name() string {
 
 // Description returns the command description
 func (c *ListCommand) Description() string {
-	return "List your tasks or projects (usage: /list [tasks|projects] [project_id])"
+	return "Показать список задач или проектов (использование: /list [tasks|projects] [project_id])"
 }
 
 // Execute handles the command execution
@@ -62,7 +62,7 @@ func (c *ListCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig
 		return c.listTasks(message, projectID)
 	default:
 		// Should never reach here
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Unknown list type. Use 'tasks' or 'projects'.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Неизвестный тип списка. Используйте 'tasks' или 'projects'.")
 		msg.ParseMode = "Markdown"
 		return &msg
 	}
@@ -73,25 +73,25 @@ func (c *ListCommand) listProjects(message *tgbotapi.Message) *tgbotapi.MessageC
 	projects, err := c.todoistClient.GetProjects(context.Background())
 	if err != nil {
 		msg := tgbotapi.NewMessage(message.Chat.ID,
-			fmt.Sprintf("❌ *Failed to get projects:* %v", err))
+			fmt.Sprintf("❌ *Ошибка получения проектов:* %v", err))
 		msg.ParseMode = "Markdown"
 		return &msg
 	}
 
 	if len(projects) == 0 {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "No projects found.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Проекты не найдены.")
 		msg.ParseMode = "Markdown"
 		return &msg
 	}
 
 	// Format projects list
 	var sb strings.Builder
-	sb.WriteString("📋 *Your Projects:*\n\n")
+	sb.WriteString("📋 *Ваши проекты:*\n\n")
 
 	for _, project := range projects {
 		sb.WriteString(fmt.Sprintf("• *%s*\n", project.Name))
 		sb.WriteString(fmt.Sprintf("  ID: `%s`\n", project.ID))
-		sb.WriteString(fmt.Sprintf("  Tasks: Use `/list tasks %s`\n\n", project.ID))
+		sb.WriteString(fmt.Sprintf("  Задачи: Используйте `/list tasks %s`\n\n", project.ID))
 	}
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, sb.String())
@@ -104,7 +104,7 @@ func (c *ListCommand) listTasks(message *tgbotapi.Message, projectID string) *tg
 	tasks, err := c.todoistClient.GetTasks(context.Background(), projectID)
 	if err != nil {
 		msg := tgbotapi.NewMessage(message.Chat.ID,
-			fmt.Sprintf("❌ *Failed to get tasks:* %v", err))
+			fmt.Sprintf("❌ *Ошибка получения задач:* %v", err))
 		msg.ParseMode = "Markdown"
 		return &msg
 	}
@@ -126,11 +126,11 @@ func (c *ListCommand) listTasks(message *tgbotapi.Message, projectID string) *tg
 	if len(tasks) == 0 {
 		var messageText string
 		if projectName != "" {
-			messageText = fmt.Sprintf("No tasks found in project \"%s\".", projectName)
+			messageText = fmt.Sprintf("В проекте \"%s\" задач не найдено.", projectName)
 		} else if projectID != "" {
-			messageText = fmt.Sprintf("No tasks found in project with ID %s.", projectID)
+			messageText = fmt.Sprintf("В проекте с ID %s задач не найдено.", projectID)
 		} else {
-			messageText = "No tasks found."
+			messageText = "Задач не найдено."
 		}
 
 		msg := tgbotapi.NewMessage(message.Chat.ID, messageText)
@@ -141,11 +141,11 @@ func (c *ListCommand) listTasks(message *tgbotapi.Message, projectID string) *tg
 	// Format tasks list
 	var sb strings.Builder
 	if projectName != "" {
-		sb.WriteString(fmt.Sprintf("📝 *Tasks in %s:*\n\n", projectName))
+		sb.WriteString(fmt.Sprintf("📝 *Задачи в проекте %s:*\n\n", projectName))
 	} else if projectID != "" {
-		sb.WriteString(fmt.Sprintf("📝 *Tasks in project %s:*\n\n", projectID))
+		sb.WriteString(fmt.Sprintf("📝 *Задачи в проекте %s:*\n\n", projectID))
 	} else {
-		sb.WriteString("📝 *Your Tasks:*\n\n")
+		sb.WriteString("📝 *Ваши задачи:*\n\n")
 	}
 
 	for _, task := range tasks {
@@ -160,16 +160,17 @@ func (c *ListCommand) listTasks(message *tgbotapi.Message, projectID string) *tg
 
 		// Show due date if exists
 		if task.Due != nil {
-			sb.WriteString(fmt.Sprintf("  Due: %s\n", task.Due.Date))
+			sb.WriteString(fmt.Sprintf("  Срок: %s\n", task.Due.Date))
 		}
 
-		sb.WriteString(fmt.Sprintf("  Project: %s\n\n", task.ProjectID))
+		sb.WriteString(fmt.Sprintf("  Проект: %s\n\n", task.ProjectID))
 	}
 
 	// Add help text for other commands
-	sb.WriteString("\n*Use these commands with task IDs:*\n")
-	sb.WriteString("/complete [task_id] - Mark a task as complete\n")
-	sb.WriteString("/view [task_id] - View task details\n")
+	sb.WriteString("\n*Полезные команды:*\n")
+	sb.WriteString("/create_task — создать задачу из обсуждения\n")
+	sb.WriteString("/start_discussion — начать обсуждение\n")
+	sb.WriteString("/cancel — отменить текущее обсуждение\n")
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, sb.String())
 	msg.ParseMode = "Markdown"

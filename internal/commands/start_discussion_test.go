@@ -7,6 +7,8 @@ import (
 	"github.com/user/telegram-bot/internal/db"
 )
 
+// Tests StartDiscussionCommand behavior when no project ID is configured for the chat
+// Verifies that the command returns an error message asking the user to set a project first
 func TestStartDiscussion_NoProjectID(t *testing.T) {
 	// Test data
 	chatID := int64(123456789)
@@ -25,13 +27,14 @@ func TestStartDiscussion_NoProjectID(t *testing.T) {
 	// Execute command
 	response := cmd.Execute(message)
 
-	// Assert response
-	assert.Contains(t, response.Text, "Please set a project ID first")
+	assert.Contains(t, response.Text, "Пожалуйста, сначала укажите идентификатор проекта")
 
 	// Verify mock
 	mockDBManager.AssertExpectations(t)
 }
 
+// Tests StartDiscussionCommand successful execution when project ID is configured
+// Verifies that a new discussion session is created and confirmation message is returned
 func TestStartDiscussion_Success(t *testing.T) {
 	// Test data
 	chatID := int64(123456789)
@@ -53,14 +56,15 @@ func TestStartDiscussion_Success(t *testing.T) {
 	// Execute command
 	response := cmd.Execute(message)
 
-	// Assert response
-	assert.Contains(t, response.Text, "Discussion started")
-	assert.Contains(t, response.Text, projectID)
+	// ✅ Fixed to Russian text
+	assert.Contains(t, response.Text, "Началось новое обсуждение")
 
 	// Verify mock
 	mockDBManager.AssertExpectations(t)
 }
 
+// Tests StartDiscussionCommand behavior when a discussion session already exists for the chat
+// Verifies that the command returns an error message indicating an active discussion is in progress
 func TestStartDiscussion_AlreadyActive(t *testing.T) {
 	// Test data
 	chatID := int64(123456789)
@@ -81,8 +85,7 @@ func TestStartDiscussion_AlreadyActive(t *testing.T) {
 	// Execute command
 	response := cmd.Execute(message)
 
-	// Assert response
-	assert.Contains(t, response.Text, "already in progress")
+	assert.Contains(t, response.Text, "Обсуждение уже идёт")
 
 	// Verify mock
 	mockDBManager.AssertExpectations(t)

@@ -13,10 +13,9 @@ import (
 	"github.com/user/telegram-bot/internal/httpclient"
 )
 
-// setupTestServer creates a test HTTP server that mimics the Todoist API
+// setupTestServer creates a mock HTTP server that simulates the Todoist API for testing
 func setupTestServer(t *testing.T) *httptest.Server {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Always check for proper auth
 		authHeader := r.Header.Get("Authorization")
 		if authHeader != "Bearer test-token" {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -24,12 +23,13 @@ func setupTestServer(t *testing.T) *httptest.Server {
 			return
 		}
 
-		// Handle different API endpoints
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/tasks":
 			handleCreateTask(t, w, r)
 		case r.Method == http.MethodGet && r.URL.Path == "/tasks":
 			handleGetTasks(t, w, r)
+		case r.Method == http.MethodGet && r.URL.Path == "/projects":
+			handleGetProjects(t, w, r)
 		case r.Method == http.MethodDelete && r.URL.Path == "/tasks/123":
 			w.WriteHeader(http.StatusNoContent)
 		default:
@@ -40,7 +40,7 @@ func setupTestServer(t *testing.T) *httptest.Server {
 	return server
 }
 
-// handleCreateTask processes a task creation request
+// handleCreateTask processes mock task creation requests and returns a simulated response
 func handleCreateTask(t *testing.T, w http.ResponseWriter, r *http.Request) {
 	var taskReq TaskRequest
 	err := json.NewDecoder(r.Body).Decode(&taskReq)
@@ -51,14 +51,12 @@ func handleCreateTask(t *testing.T, w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	// Verify task content
 	if taskReq.Content == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, `{"error":"Content is required"}`)
 		return
 	}
 
-	// Return a mock task response
 	taskResp := TaskResponse{
 		ID:          "123",
 		Content:     taskReq.Content,
@@ -73,26 +71,28 @@ func handleCreateTask(t *testing.T, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(taskResp)
 }
 
-// handleGetTasks processes a task listing request
+// handleGetTasks processes mock task listing requests and returns tasks wrapped in TasksResponse
 func handleGetTasks(t *testing.T, w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
 
-	// Return mock tasks
-	tasks := []*TaskResponse{
-		{
-			ID:          "123",
-			Content:     "Task 1",
-			Description: "Description 1",
-			ProjectID:   projectID,
-			Priority:    1,
+	tasks := TasksResponse{
+		Results: []*TaskResponse{
+			{
+				ID:          "123",
+				Content:     "Task 1",
+				Description: "Description 1",
+				ProjectID:   projectID,
+				Priority:    1,
+			},
+			{
+				ID:          "124",
+				Content:     "Task 2",
+				Description: "Description 2",
+				ProjectID:   projectID,
+				Priority:    2,
+			},
 		},
-		{
-			ID:          "124",
-			Content:     "Task 2",
-			Description: "Description 2",
-			ProjectID:   projectID,
-			Priority:    2,
-		},
+		NextCursor: nil,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -100,22 +100,40 @@ func handleGetTasks(t *testing.T, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(tasks)
 }
 
-// createTestConfig creates a test configuration file from a template
+// handleGetProjects processes mock project listing requests and returns projects wrapped in ProjectsResponse
+func handleGetProjects(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	projects := ProjectsResponse{
+		Results: []Project{
+			{
+				ID:   "12345",
+				Name: "Test Project",
+			},
+			{
+				ID:   "67890",
+				Name: "Another Project",
+			},
+		},
+		NextCursor: nil,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(projects)
+}
+
+// createTestConfig creates a temporary configuration file from a template for testing
 func createTestConfig(t *testing.T, baseURL string) string {
-	// Read the template
 	tmpl, err := template.ParseFiles("testdata/config.yaml")
 	if err != nil {
 		t.Fatalf("Error parsing template: %v", err)
 	}
 
-	// Create a temporary file for the test config
 	tmpFile, err := os.CreateTemp("", "test-config-*.yaml")
 	if err != nil {
 		t.Fatalf("Error creating temp file: %v", err)
 	}
 	defer tmpFile.Close()
 
-	// Execute the template with the server URL
 	err = tmpl.Execute(tmpFile, struct {
 		BaseURL string
 	}{
@@ -128,13 +146,11 @@ func createTestConfig(t *testing.T, baseURL string) string {
 	return tmpFile.Name()
 }
 
-// newTestClient creates a test TodoistClient using a custom configuration file
+// newTestClient creates a test Todoist client with a mock HTTP server configuration
 func newTestClient(t *testing.T, configPath string) Client {
-	// Set up test token in environment
 	os.Setenv("TEST_TOKEN", "test-token")
 	defer os.Unsetenv("TEST_TOKEN")
 
-	// Create a custom client
 	configs, err := httpclient.LoadConfig(configPath)
 	if err != nil {
 		t.Fatalf("Error loading test config: %v", err)
@@ -155,7 +171,8 @@ func newTestClient(t *testing.T, configPath string) Client {
 	}
 }
 
-// TestTodoistClient_CreateTask tests task creation
+// Tests that the Todoist client successfully creates a task with valid content
+// Verifies that the task ID and content are correctly returned from the API
 func TestTodoistClient_CreateTask(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -165,7 +182,6 @@ func TestTodoistClient_CreateTask(t *testing.T) {
 
 	client := newTestClient(t, configPath)
 
-	// Create a task
 	task := &TaskRequest{
 		Content:     "Test Task",
 		Description: "Test Description",
@@ -177,7 +193,6 @@ func TestTodoistClient_CreateTask(t *testing.T) {
 		t.Fatalf("Error creating task: %v", err)
 	}
 
-	// Verify response
 	if taskResp.ID != "123" {
 		t.Errorf("Expected task ID '123', got '%s'", taskResp.ID)
 	}
@@ -186,7 +201,8 @@ func TestTodoistClient_CreateTask(t *testing.T) {
 	}
 }
 
-// TestTodoistClient_GetTasks tests task listing
+// Tests that the Todoist client successfully retrieves a list of tasks from a project
+// Verifies that the correct number of tasks is returned with proper IDs
 func TestTodoistClient_GetTasks(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -196,13 +212,11 @@ func TestTodoistClient_GetTasks(t *testing.T) {
 
 	client := newTestClient(t, configPath)
 
-	// Get tasks
 	tasks, err := client.GetTasks(context.Background(), "456")
 	if err != nil {
 		t.Fatalf("Error getting tasks: %v", err)
 	}
 
-	// Verify response
 	if len(tasks) != 2 {
 		t.Errorf("Expected 2 tasks, got %d", len(tasks))
 	}
@@ -211,7 +225,8 @@ func TestTodoistClient_GetTasks(t *testing.T) {
 	}
 }
 
-// TestTodoistClient_DeleteTask tests task deletion
+// Tests that the Todoist client successfully deletes a task by ID
+// Verifies that no error is returned on successful deletion
 func TestTodoistClient_DeleteTask(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -221,9 +236,32 @@ func TestTodoistClient_DeleteTask(t *testing.T) {
 
 	client := newTestClient(t, configPath)
 
-	// Delete a task
 	err := client.DeleteTask(context.Background(), "123")
 	if err != nil {
 		t.Fatalf("Error deleting task: %v", err)
+	}
+}
+
+// Tests that the Todoist client successfully retrieves a list of projects
+// Verifies that the correct number of projects is returned with proper IDs and names
+func TestTodoistClient_GetProjects(t *testing.T) {
+	server := setupTestServer(t)
+	defer server.Close()
+
+	configPath := createTestConfig(t, server.URL)
+	defer os.Remove(configPath)
+
+	client := newTestClient(t, configPath)
+
+	projects, err := client.GetProjects(context.Background())
+	if err != nil {
+		t.Fatalf("Error getting projects: %v", err)
+	}
+
+	if len(projects) != 2 {
+		t.Errorf("Expected 2 projects, got %d", len(projects))
+	}
+	if projects[0].ID != "12345" || projects[1].ID != "67890" {
+		t.Errorf("Incorrect project IDs")
 	}
 }

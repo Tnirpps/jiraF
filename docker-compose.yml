@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:14
@@ -18,6 +16,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - jiraf_network
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
 
   telegram-bot:
     build:
@@ -40,6 +43,15 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - jiraf_network
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
 
 volumes:
   postgres_data:
+
+networks:
+  jiraf_network:
+    driver: bridge

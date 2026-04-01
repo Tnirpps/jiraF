@@ -15,10 +15,8 @@ import (
 const (
 	// CallbackConfirm is used for confirming and creating a task
 	CallbackConfirm = "confirm_task"
-
 	// CallbackEdit is used for editing draft task before creation
 	CallbackEdit = "edit_task"
-
 	// CallbackCancel is used for canceling task creation
 	CallbackCancel = "cancel_task"
 )
@@ -89,7 +87,6 @@ func (h *CallbackHandler) HandleCallback(callback *tgbotapi.CallbackQuery) *Call
 // verifySessionOwner checks if the user is the owner of the session
 func (h *CallbackHandler) verifySessionOwner(sessionIDStr string, userID int64) (bool, error) {
 	ctx := context.Background()
-
 	// Parse session ID
 	sessionID, err := strconv.Atoi(sessionIDStr)
 	if err != nil {
@@ -106,11 +103,6 @@ func (h *CallbackHandler) verifySessionOwner(sessionIDStr string, userID int64) 
 }
 
 // handleConfirmCallback handles confirming a task
-// This will:
-// 1. Fetch the draft task from the database
-// 2. Create a real task in Todoist
-// 3. Save the created task ID and URL
-// 4. Close the session
 func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery, sessionIDStr string) *CallbackResponse {
 	// Check if the user is the owner of the session
 	isOwner, err := h.verifySessionOwner(sessionIDStr, int64(callback.From.ID))
@@ -165,6 +157,7 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 		Priority:    int(task.Priority.Int32),
 		DueDate:     task.DueISO.String,
 	}
+
 	resp, err := h.todoistClient.CreateTask(ctx, todoistRequest)
 	if err != nil {
 		log.Printf("Error creating task: %v", err)
@@ -229,31 +222,18 @@ func (h *CallbackHandler) handleEditCallback(callback *tgbotapi.CallbackQuery, s
 	// Create the message asking for edit instructions
 	messageText := `
 ✏️ Отредактировать задачу
-
 Пожалуйста, ответьте на это сообщение, указав ваши инструкции по редактированию в произвольном формате.
-
 Примеры:
 • "Измени заголовок на: Исправление ошибки входа в систему"
 • "Установи высокий приоритет"
 • "Измени срок выполнения на пятницу"
 • "Добавить метку: frontend"
 `
-
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "Markdown"
 
-	// sessionID, err := strconv.Atoi(sessionIDStr)
-	// if err == nil {
-	// 	msg.ReplyMarkup = createInlineKeyboard(sessionID)
-	// } else {
-	// 	log.Printf("Error converting session ID to int: %v", err)
-	// }
-
 	// Create acknowledgment for the callback
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "✏️ Пожалуйста, ответьте на это сообщение с инструкциями по редактированию")
-
-	// In a real implementation, we would mark in the database that we're waiting for a reply for this session
-	// Something like: h.dbManager.SetEditMode(ctx, sessionID, true)
 
 	// Return both the callback acknowledgment and the message to send
 	return &CallbackResponse{
@@ -286,13 +266,17 @@ func (h *CallbackHandler) handleCancelCallback(callback *tgbotapi.CallbackQuery,
 		}
 	}
 
-	// PLACEHOLDER: This will be implemented in the next phase
-	// Will cancel task creation and possibly close the session
-	log.Printf("PLACEHOLDER: Canceling task from session %s", sessionIDStr)
+	// ✅ Закрываем сессию при отмене
+	ctx := context.Background()
+	sessionID, err := strconv.Atoi(sessionIDStr)
+	if err == nil {
+		err = h.dbManager.CloseSession(ctx, callback.Message.Chat.ID)
+		if err != nil {
+			log.Printf("Error closing session on cancel: %v", err)
+		}
+	}
 
-	// In the next phase, this will:
-	// 1. Delete the draft task if needed
-	// 2. Possibly close the session
+	log.Printf("Canceling task from session %s", sessionIDStr)
 
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "❌ Создание задачи отменено")
 	return &CallbackResponse{

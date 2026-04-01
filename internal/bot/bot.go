@@ -45,9 +45,9 @@ func New(telegramToken string, dbManager commands.DBManager, aiClient ai.Client,
 	helpCmd := commands.NewHelpCommand(registry)
 	registry.Register(helpCmd)
 
-	// // Task management commands
-	// listCmd := commands.NewListCommand(todoistClient)
-	// registry.Register(listCmd)
+	// Task management commands
+	listCmd := commands.NewListCommand(todoistClient)
+	registry.Register(listCmd)
 
 	// Register discussion flow commands
 	setProjectCmd := commands.NewSetProjectCommand(todoistClient, dbManager)
@@ -155,7 +155,6 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 	// Only delete buttons if the user is the session owner
 	if callbackResp.IsOwner {
 		// Delete buttons from the original message
-
 		editMsg := tgbotapi.NewEditMessageText(callback.Message.Chat.ID, callback.Message.MessageID, callback.Message.Text)
 		editMsg.ParseMode = "Markdown"
 		// Clear buttons
@@ -209,6 +208,12 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	log.Printf("[%s] %s", message.From.UserName, message.Text)
 
+	if message.Text != "" && !message.IsCommand() {
+		if b.handleButtonText(message) {
+			return
+		}
+	}
+
 	// Check if this is a reply to an edit request
 	if message.ReplyToMessage != nil && !message.IsCommand() {
 		replyToID := int64(message.ReplyToMessage.MessageID)
@@ -261,6 +266,35 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 		responseMsg := command.Execute(message)
 		b.sendResponse(responseMsg)
 	}
+}
+
+func (b *Bot) handleButtonText(message *tgbotapi.Message) bool {
+	buttonCommands := map[string]string{
+		"📁 Выбрать проект":    "set_project",
+		"💬 Начать обсуждение": "start_discussion",
+		"✅ Создать задачу":    "create_task",
+		"❌ Отменить":          "cancel",
+		"📋 Список задач":      "list",
+		"❓ Помощь":            "help",
+	}
+
+	commandName, exists := buttonCommands[message.Text]
+	if !exists {
+		log.Printf("[BUTTON] Кнопка не найдена в мапе: '%s'", message.Text)
+		return false
+	}
+
+	log.Printf("[BUTTON] %s pressed: %s", message.From.UserName, message.Text)
+
+	command, exists := b.commandRegistry.Get(commandName)
+	if !exists {
+		b.sendMessage(message.Chat.ID, "Команда недоступна.")
+		return true
+	}
+
+	responseMsg := command.Execute(message)
+	b.sendResponse(responseMsg)
+	return true
 }
 
 // sendResponse sends a message with debugging logs

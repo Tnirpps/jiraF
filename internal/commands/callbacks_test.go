@@ -1,102 +1,166 @@
 package commands
 
-// func TestCallbackHandler_HandleCallback_ParsesSessionIDCorrectly(t *testing.T) {
-// 	// Create mock DB manager
-// 	mockDB := new(MockDBManager)
+import (
+	"database/sql"
+	"testing"
+	"time"
 
-// 	// Setup expected calls
-// 	mockDB.On("IsSessionOwner", mock.Anything, 123, int64(456)).Return(true, nil)
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/user/telegram-bot/internal/db"
+	"github.com/user/telegram-bot/internal/todoist"
+)
 
-// 	// Create handler
-// 	handler := NewCallbackHandler(mockDB)
+// Tests that a valid session owner can successfully confirm and create a task from a draft
+func TestCallbackHandler_HandleCallback_ParsesSessionIDCorrectly(t *testing.T) {
+	mockDB := new(MockDBManager)
+	mockTodoist := new(MockTodoistClient)
 
-// 	// Create test callback
-// 	callback := &tgbotapi.CallbackQuery{
-// 		ID: "test_callback_id",
-// 		From: &tgbotapi.User{
-// 			ID: 456,
-// 		},
-// 		Message: &tgbotapi.Message{
-// 			Chat: &tgbotapi.Chat{
-// 				ID: 789,
-// 			},
-// 			MessageID: 101,
-// 		},
-// 		Data: "confirm_task:123", // Using the format: action:sessionid
-// 	}
+	sessionID := 123
+	chatID := int64(789)
+	userID := int64(456)
 
-// 	// Handle callback
-// 	response := handler.HandleCallback(callback)
+	mockDB.On("IsSessionOwner", mock.Anything, sessionID, userID).Return(true, nil)
+	mockDB.On("GetDraftTask", mock.Anything, sessionID).Return(db.DraftTask{
+		SessionID: sessionID,
+		Title:     sql.NullString{String: "Test Task", Valid: true},
+		Description: sql.NullString{String: "Test Description", Valid: true},
+		DueISO:    sql.NullString{String: "2026-04-01", Valid: true},
+		Priority:  sql.NullInt32{Int32: 3, Valid: true},
+		UpdatedAt: time.Now(),
+	}, nil)
+	mockDB.On("GetTodoistProjectID", mock.Anything, chatID).Return("project123", nil)
+	mockTodoist.On("CreateTask", mock.Anything, mock.Anything).Return(&todoist.TaskResponse{
+		ID:      "todoist123",
+		Content: "Test Task",
+		URL:     "https://todoist.com/showTask?id=todoist123",
+	}, nil)
+	mockDB.On("SaveCreatedTask", mock.Anything, sessionID, "todoist123", mock.Anything).Return(nil)
+	mockDB.On("CloseSession", mock.Anything, chatID).Return(nil)
 
-// 	// Assert response
-// 	assert.NotNil(t, response)
-// 	assert.True(t, response.IsOwner)
-// 	assert.NotNil(t, response.CallbackConfig)
+	handler := NewCallbackHandler(mockTodoist, mockDB)
 
-// 	// Verify mock was called with correct session ID
-// 	mockDB.AssertCalled(t, "IsSessionOwner", mock.Anything, 123, int64(456))
-// }
+	callback := &tgbotapi.CallbackQuery{
+		ID: "test_callback_id",
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{ID: chatID},
+			MessageID: 101,
+		},
+		Data: "confirm_task:123",
+	}
 
-// func TestCallbackHandler_HandleCallback_NonOwner(t *testing.T) {
-// 	// Create mock DB manager
-// 	mockDB := new(MockDBManager)
+	response := handler.HandleCallback(callback)
 
-// 	// Setup expected calls - return false for ownership
-// 	mockDB.On("IsSessionOwner", mock.Anything, 123, int64(456)).Return(false, nil)
+	assert.NotNil(t, response)
+	assert.True(t, response.IsOwner)
+	assert.NotNil(t, response.CallbackConfig)
 
-// 	// Create handler
-// 	handler := NewCallbackHandler(mockDB)
+	mockDB.AssertExpectations(t)
+	mockTodoist.AssertExpectations(t)
+}
 
-// 	// Create test callback
-// 	callback := &tgbotapi.CallbackQuery{
-// 		ID: "test_callback_id",
-// 		From: &tgbotapi.User{
-// 			ID: 456,
-// 		},
-// 		Message: &tgbotapi.Message{
-// 			Chat: &tgbotapi.Chat{
-// 				ID: 789,
-// 			},
-// 			MessageID: 101,
-// 		},
-// 		Data: "cancel_task:123", // Using the format: action:sessionid
-// 	}
+// Tests that a user who is not the session owner cannot manage or cancel the discussion
+func TestCallbackHandler_HandleCallback_NonOwner(t *testing.T) {
+	mockDB := new(MockDBManager)
+	mockTodoist := new(MockTodoistClient)
 
-// 	// Handle callback
-// 	response := handler.HandleCallback(callback)
+	sessionID := 123
+	userID := int64(456)
 
-// 	// Assert response
-// 	assert.NotNil(t, response)
-// 	assert.False(t, response.IsOwner)
-// 	assert.NotNil(t, response.CallbackConfig)
-// 	assert.Contains(t, response.CallbackConfig.Text, "Only the user who started this discussion")
-// }
+	mockDB.On("IsSessionOwner", mock.Anything, sessionID, userID).Return(false, nil)
 
-// func TestCallbackHandler_HandleCallback_InvalidCallbackData(t *testing.T) {
-// 	// Create mock DB manager
-// 	mockDB := new(MockDBManager)
+	handler := NewCallbackHandler(mockTodoist, mockDB)
 
-// 	// Create handler
-// 	handler := NewCallbackHandler(mockDB)
+	callback := &tgbotapi.CallbackQuery{
+		ID: "test_callback_id",
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{ID: 789},
+			MessageID: 101,
+		},
+		Data: "cancel_task:123",
+	}
 
-// 	// Create test callback with invalid data
-// 	callback := &tgbotapi.CallbackQuery{
-// 		ID: "test_callback_id",
-// 		From: &tgbotapi.User{
-// 			ID: 456,
-// 		},
-// 		Data: "invalid_format",
-// 	}
+	response := handler.HandleCallback(callback)
 
-// 	// Handle callback
-// 	response := handler.HandleCallback(callback)
+	assert.NotNil(t, response)
+	assert.False(t, response.IsOwner)
+	assert.NotNil(t, response.CallbackConfig)
+	assert.Contains(t, response.CallbackConfig.Text, "Только автор обсуждения может отменить задачу")
 
-// 	// Assert response
-// 	assert.NotNil(t, response)
-// 	assert.False(t, response.IsOwner)
-// 	assert.NotNil(t, response.CallbackConfig)
-// 	assert.Contains(t, response.CallbackConfig.Text, "Invalid callback data")
+	mockDB.AssertExpectations(t)
+}
 
-// 	// The mock should not have been called
-// 	mockDB.AssertNotCalled(t, "IsSessionOwner", mock.Anything, mock.Anything, mock.Anything)
-// }
+// Tests that malformed callback data without proper separator is handled gracefully
+func TestCallbackHandler_HandleCallback_InvalidCallbackData(t *testing.T) {
+	mockDB := new(MockDBManager)
+	mockTodoist := new(MockTodoistClient)
+
+	handler := NewCallbackHandler(mockTodoist, mockDB)
+
+	callback := &tgbotapi.CallbackQuery{
+		ID: "test_callback_id",
+		From: &tgbotapi.User{ID: 456},
+		Data: "invalid_format",
+	}
+
+	response := handler.HandleCallback(callback)
+
+	assert.NotNil(t, response)
+	assert.False(t, response.IsOwner)
+	assert.NotNil(t, response.CallbackConfig)
+	assert.Contains(t, response.CallbackConfig.Text, "Invalid callback data")
+
+	mockDB.AssertNotCalled(t, "IsSessionOwner", mock.Anything, mock.Anything, mock.Anything)
+	mockDB.AssertExpectations(t)
+}
+
+// Tests that unknown callback action types are rejected with an appropriate error message
+func TestCallbackHandler_HandleCallback_UnknownCallbackType(t *testing.T) {
+	mockDB := new(MockDBManager)
+	mockTodoist := new(MockTodoistClient)
+
+	handler := NewCallbackHandler(mockTodoist, mockDB)
+
+	callback := &tgbotapi.CallbackQuery{
+		ID: "test_callback_id",
+		From: &tgbotapi.User{ID: 456},
+		Data: "unknown_action:123",
+	}
+
+	response := handler.HandleCallback(callback)
+
+	assert.NotNil(t, response)
+	assert.False(t, response.IsOwner)
+	assert.NotNil(t, response.CallbackConfig)
+	assert.Contains(t, response.CallbackConfig.Text, "Unknown callback type")
+
+	mockDB.AssertExpectations(t)
+}
+
+// Tests that non-numeric session IDs in callback data are handled without errors
+func TestCallbackHandler_HandleCallback_InvalidSessionID(t *testing.T) {
+	mockDB := new(MockDBManager)
+	mockTodoist := new(MockTodoistClient)
+
+	handler := NewCallbackHandler(mockTodoist, mockDB)
+
+	callback := &tgbotapi.CallbackQuery{
+		ID: "test_callback_id",
+		From: &tgbotapi.User{ID: 456},
+		Message: &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{ID: 789},
+			MessageID: 101,
+		},
+		Data: "confirm_task:abc",
+	}
+
+	response := handler.HandleCallback(callback)
+
+	assert.NotNil(t, response)
+	assert.False(t, response.IsOwner)
+
+	mockDB.AssertExpectations(t)
+}
