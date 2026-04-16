@@ -268,12 +268,10 @@ func (h *CallbackHandler) handleCancelCallback(callback *tgbotapi.CallbackQuery,
 
 	// ✅ Закрываем сессию при отмене
 	ctx := context.Background()
-	sessionID, err := strconv.Atoi(sessionIDStr)
-	if err == nil {
-		err = h.dbManager.CloseSession(ctx, callback.Message.Chat.ID)
-		if err != nil {
-			log.Printf("Error closing session on cancel: %v", err)
-		}
+
+	err = h.dbManager.CloseSession(ctx, callback.Message.Chat.ID)
+	if err != nil {
+		log.Printf("Error closing session on cancel: %v", err)
 	}
 
 	log.Printf("Canceling task from session %s", sessionIDStr)
