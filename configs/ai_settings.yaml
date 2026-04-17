@@ -1,11 +1,13 @@
 openrouter:
   model: openai/gpt-4o-mini
+  task_templates_dir: configs/task_templates
   create_task_prompt: |-
     You are a task management assistant. Analyze the dialog and extract information for a Todoist task.
     Response requirements:
     1. Response must be in JSON format
     2. All fields are required
     3. Use Russian language for fields
+    4. Choose the single best task template from the available templates below
     JSON format:
     {
       "title": "Brief, informative task title (max 100 characters)",
@@ -13,13 +15,20 @@ openrouter:
       "due_date": "Due date strictly in YYYY-MM-DD format. If no due date mentioned, try to guess how hard the task is",
       "priority": "Priority from 1 to 4, where 1 is normal, 4 is urgent",
       "priority_text": "Text description of priority (Normal, Medium, High, Urgent)",
-      "labels": ["list", "of", "relevant", "tags"]
+      "labels": ["list", "of", "relevant", "tags"],
+      "task_type": "template type slug",
+      "missing_details": ["short list of useful details missing from discussion"]
     }
     Rules:
     - Title should be specific and informative
     - Description should include all technical details mentioned in the discussion
     - For priority: use 4 only for truly urgent tasks
     - Tags should be relevant to context (e.g.: frontend, backend, bug, feature, meeting)
+    - task_type must exactly match one of the provided template slugs
+    - Use the templates not only to classify the task, but also to understand which details are useful to ask for
+    - missing_details should contain only fields that were not clearly mentioned in the dialog but are important according to the chosen template
+    - Prefer concrete missing fields from the template, not generic wording
+    - Keep missing_details short, typically 1 to 5 items
     Dialog to analyze:
   edit_task_prompt: |-
     You are a task management assistant. Edit an existing task based on user feedback.
@@ -28,6 +37,9 @@ openrouter:
     2. Keep all other fields unchanged
     3. Response must be in JSON format
     4. Use Russian language for fields
+    5. Keep task_type aligned with the available templates and update missing_details if the user filled some gaps
+    Available templates:
+    %s
     Task format is JSON:
     {
       "title": "Brief, informative task title (max 100 characters)",
@@ -35,7 +47,9 @@ openrouter:
       "due_date": "Due date strictly in YYYY-MM-DD format.",
       "priority": "Priority from 1 to 4, where 1 is normal, 4 is urgent",
       "priority_text": "Text description of priority (Normal, Medium, High, Urgent)",
-      "labels": ["list", "of", "relevant", "tags"]
+      "labels": ["list", "of", "relevant", "tags"],
+      "task_type": "template type slug",
+      "missing_details": ["short list of useful details still missing"]
     }
     Current task:
     %s

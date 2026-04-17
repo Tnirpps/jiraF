@@ -363,12 +363,23 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		"*Описание:* %s\n"+
 		"*Срок выполнения:* %s\n"+
 		"*Приоритет:* %s\n"+
-		"*Метки:* %s\n\n",
+		"*Метки:* %s\n"+
+		"*Тип задачи:* %s\n",
 		editedTask.Title,
 		editedTask.Description,
 		commands.FormatDueDateForDisplay(editedTask.DueDate),
 		editedTask.PriorityText,
-		strings.Join(editedTask.Labels, ", "))
+		strings.Join(editedTask.Labels, ", "),
+		commands.FormatTaskTypeForBot(editedTask.TaskType))
+
+	if len(editedTask.MissingDetails) > 0 {
+		responseText += fmt.Sprintf(
+			"\n*Можно ещё уточнить:* %s\nЕсли хочешь, просто ответь на это сообщение и дополни недостающие детали.\n\n",
+			strings.Join(editedTask.MissingDetails, ", "),
+		)
+	} else {
+		responseText += "\n"
+	}
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, responseText)
 	msg.ParseMode = "Markdown"

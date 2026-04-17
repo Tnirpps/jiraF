@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -60,12 +61,14 @@ func (e *PriorityError) Error() string {
 
 func TestTaskJSON(t *testing.T) {
 	task := AnalyzedTask{
-		Title:        "Тестовая задача",
-		Description:  "Описание тестовой задачи",
-		DueDate:      "2026-03-20",
-		Priority:     3,
-		PriorityText: "High",
-		Labels:       []string{"frontend", "bug"},
+		Title:          "Тестовая задача",
+		Description:    "Описание тестовой задачи",
+		DueDate:        "2026-03-20",
+		Priority:       3,
+		PriorityText:   "High",
+		Labels:         []string{"frontend", "bug"},
+		TaskType:       "bug",
+		MissingDetails: []string{"шаги воспроизведения", "ожидаемое поведение"},
 	}
 
 	data, err := json.Marshal(task)
@@ -86,6 +89,12 @@ func TestTaskJSON(t *testing.T) {
 	}
 	if len(decoded.Labels) != len(task.Labels) {
 		t.Errorf("Labels length mismatch: got %v, want %v", len(decoded.Labels), len(task.Labels))
+	}
+	if decoded.TaskType != task.TaskType {
+		t.Errorf("TaskType mismatch: got %v, want %v", decoded.TaskType, task.TaskType)
+	}
+	if len(decoded.MissingDetails) != len(task.MissingDetails) {
+		t.Errorf("MissingDetails length mismatch: got %v, want %v", len(decoded.MissingDetails), len(task.MissingDetails))
 	}
 }
 
@@ -240,7 +249,9 @@ func TestTaskCreationFlow(t *testing.T) {
 		"due_date": "2026-03-13",
 		"priority": 4,
 		"priority_text": "Срочно",
-		"labels": ["frontend", "urgent", "project"]
+		"labels": ["frontend", "urgent", "project"],
+		"task_type": "epic",
+		"missing_details": ["риски", "зависимости"]
 	}`
 
 	var task AnalyzedTask
@@ -255,9 +266,95 @@ func TestTaskCreationFlow(t *testing.T) {
 	if len(task.Labels) == 0 {
 		t.Error("Expected at least one label")
 	}
+	if task.TaskType == "" {
+		t.Error("Expected task type to be present")
+	}
 
 	t.Logf("Task created successfully: %s (Priority: %d, Due: %s)",
 		task.Title, task.Priority, task.DueDate)
+}
+
+func TestLoadTaskTemplates(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(
+		filepath.Join(dir, "task.md"),
+		[]byte("## Task template\n\n### Deadline"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write task template: %v", err)
+	}
+
+	if err := os.WriteFile(
+		filepath.Join(dir, "epic.md"),
+		[]byte("## Epic template\n\n### Risks"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write epic template: %v", err)
+	}
+
+	if err := os.WriteFile(
+		filepath.Join(dir, "manual_check.md"),
+		[]byte("## Manual check template\n\n### Environment"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write manual_check template: %v", err)
+	}
+
+	templates, err := LoadTaskTemplates(dir)
+	if err != nil {
+		t.Fatalf("LoadTaskTemplates() error = %v", err)
+	}
+
+	if len(templates) != 3 {
+		t.Fatalf("expected 3 templates, got %d", len(templates))
+	}
+
+	if templates[0].Type != "epic" {
+		t.Errorf("expected first template to be epic, got %s", templates[0].Type)
+	}
+
+	if templates[1].Type != "manual_check" {
+		t.Errorf("expected second template to be manual_check, got %s", templates[1].Type)
+	}
+
+	if templates[2].Type != "task" {
+		t.Errorf("expected third template to be task, got %s", templates[2].Type)
+	}
+
+	promptSection := BuildTaskTemplatesPromptSection(templates)
+	if !strings.Contains(promptSection, "TEMPLATE: epic") {
+		t.Error("prompt section should include epic template header")
+	}
+	if !strings.Contains(promptSection, "TEMPLATE: task") {
+		t.Error("prompt section should include task template header")
+	}
+	if !strings.Contains(promptSection, "Manual check template") {
+		t.Error("prompt section should include template content")
+	}
+}
+
+func TestNormalizeTaskType(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{input: "bug", want: "bug"},
+		{input: "Эпик", want: "epic"},
+		{input: "manual check", want: "manual_check"},
+		{input: "manual-check", want: "manual_check"},
+		{input: "task", want: "task"},
+		{input: "", want: "task"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := normalizeTaskType(tt.input)
+			if got != tt.want {
+				t.Errorf("normalizeTaskType(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
 }
 
 // ============================================================================

@@ -12,6 +12,7 @@ type AiSettings struct {
 	ModelURLTemplate string `yaml:"model_url_template"`
 	CreateTaskPrompt string `yaml:"create_task_prompt"`
 	EditTaskPrompt   string `yaml:"edit_task_prompt"`
+	TaskTemplatesDir string `yaml:"task_templates_dir"`
 }
 
 type AiSettingsRoot struct {
@@ -35,6 +36,10 @@ func LoadAiSettings(path string) (AiSettings, error) {
 
 	if root.OpenRouter.CreateTaskPrompt == "" || root.OpenRouter.EditTaskPrompt == "" {
 		return AiSettings{}, fmt.Errorf("prompts missing in AI settings")
+	}
+
+	if root.OpenRouter.TaskTemplatesDir == "" {
+		root.OpenRouter.TaskTemplatesDir = "configs/task_templates"
 	}
 
 	return root.OpenRouter, nil
