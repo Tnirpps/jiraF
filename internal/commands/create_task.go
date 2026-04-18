@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 	"time"
+	"unicode"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/user/telegram-bot/internal/ai"
@@ -176,12 +177,22 @@ func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, ta
 		responseText += fmt.Sprintf("\n*Срок выполнения:* %s\n", dueDisplay)
 	}
 
-	responseText += fmt.Sprintf("*Приоритет:* %s\n\n", task.PriorityText)
+	responseText += fmt.Sprintf("*Приоритет:* %s\n", task.PriorityText)
+	responseText += fmt.Sprintf("*Тип задачи:* %s\n", formatTaskType(task.TaskType))
 
 	// if assigneeNote != "" {
 	// 	responseText += fmt.Sprintf("*Assigned to:* %s\n\n", assigneeNote)
 	// }
 
+	if len(task.MissingDetails) > 0 {
+		responseText += fmt.Sprintf(
+			"\n*Можно ещё уточнить:* %s\n",
+			strings.Join(task.MissingDetails, ", "),
+		)
+		responseText += "Если хочешь, нажми `Редактировать` и дополни эти детали.\n"
+	}
+
+	responseText += "\n"
 	responseText += "Проверь описание и выбери действие:"
 
 	// Create message with inline buttons
@@ -192,6 +203,37 @@ func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, ta
 	msg.ReplyMarkup = CreateInlineKeyboard(sessionID)
 
 	return &msg
+}
+
+func formatTaskType(taskType string) string {
+	normalized := strings.ToLower(strings.TrimSpace(taskType))
+
+	switch normalized {
+	case "bug":
+		return "Баг"
+	case "epic":
+		return "Эпик"
+	}
+
+	parts := strings.FieldsFunc(normalized, func(r rune) bool {
+		return r == '_' || r == '-' || unicode.IsSpace(r)
+	})
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + part[1:]
+	}
+
+	if len(parts) == 0 {
+		return "Задача"
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func FormatTaskTypeForBot(taskType string) string {
+	return formatTaskType(taskType)
 }
 
 // extractAssignee extracts assignee information from messages

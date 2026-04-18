@@ -84,11 +84,13 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 
 		// Mock AI analysis - with formatted messages (as in real code)
 		analyzedTask := &ai.AnalyzedTask{
-			Title:        "Implement NLP feature",
-			Description:  "Task details from discussion",
-			DueDate:      "friday",
-			Priority:     3,
-			PriorityText: "Высокий",
+			Title:          "Implement NLP feature",
+			Description:    "Task details from discussion",
+			DueDate:        "friday",
+			Priority:       3,
+			PriorityText:   "Высокий",
+			TaskType:       "epic",
+			MissingDetails: []string{"срок", "риски"},
 		}
 
 		// ✅ Expect formatted messages (with username and timestamp)
@@ -123,6 +125,8 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 		assert.Contains(t, result.Text, "Черновик задачи готов")
 		assert.Contains(t, result.Text, "Implement NLP feature")
 		assert.Contains(t, result.Text, "*Приоритет:* Высокий")
+		assert.Contains(t, result.Text, "*Тип задачи:* Эпик")
+		assert.Contains(t, result.Text, "*Можно ещё уточнить:* срок, риски")
 
 		// Check that the message has a reply markup with buttons
 		markup, ok := result.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup)
@@ -245,6 +249,26 @@ func TestCreateTaskCommand_ExtractAssignee(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := cmd.extractAssignee(tc.input)
 			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestFormatTaskType(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{name: "epic", input: "epic", expected: "Эпик"},
+		{name: "bug", input: "bug", expected: "Баг"},
+		{name: "manual_check", input: "manual_check", expected: "Manual Check"},
+		{name: "manual-check", input: "manual-check", expected: "Manual Check"},
+		{name: "empty", input: "", expected: "Задача"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, formatTaskType(tc.input))
 		})
 	}
 }

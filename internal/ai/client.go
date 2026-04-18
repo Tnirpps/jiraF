@@ -19,20 +19,24 @@ type Client interface {
 
 // AnalyzedTask represents the structured task from AI analysis
 type AnalyzedTask struct {
-	Title        string   `json:"title"`
-	Description  string   `json:"description"`
-	DueDate      string   `json:"due_date"`
-	Priority     int      `json:"priority"`
-	PriorityText string   `json:"priority_text"`
-	Labels       []string `json:"labels,omitempty"`
+	Title          string   `json:"title"`
+	Description    string   `json:"description"`
+	DueDate        string   `json:"due_date"`
+	Priority       int      `json:"priority"`
+	PriorityText   string   `json:"priority_text"`
+	Labels         []string `json:"labels,omitempty"`
+	TaskType       string   `json:"task_type,omitempty"`
+	MissingDetails []string `json:"missing_details,omitempty"`
 }
 
 // AIClient клиент для работы с OpenRouter AI
 type AIClient struct {
-	httpClient       *httpclient.Client
-	model            string
-	createTaskPrompt string
-	editTaskPrompt   string
+	httpClient          *httpclient.Client
+	model               string
+	createTaskPrompt    string
+	editTaskPrompt      string
+	taskTemplates       []TaskTemplate
+	taskTemplatesPrompt string
 }
 
 // NewClient создает новый AI клиент (OpenRouter)
@@ -57,11 +61,18 @@ func NewClient(config *httpclient.ClientConfig) (Client, error) {
 		model = "openai/gpt-4o-mini"
 	}
 
+	taskTemplates, err := LoadTaskTemplates(aiSettings.TaskTemplatesDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load task templates: %w", err)
+	}
+
 	return &AIClient{
-		httpClient:       client,
-		model:            model,
-		createTaskPrompt: aiSettings.CreateTaskPrompt,
-		editTaskPrompt:   aiSettings.EditTaskPrompt,
+		httpClient:          client,
+		model:               model,
+		createTaskPrompt:    aiSettings.CreateTaskPrompt,
+		editTaskPrompt:      aiSettings.EditTaskPrompt,
+		taskTemplates:       taskTemplates,
+		taskTemplatesPrompt: BuildTaskTemplatesPromptSection(taskTemplates),
 	}, nil
 }
 
@@ -108,7 +119,10 @@ func (c *AIClient) AnalyzeDiscussion(ctx context.Context, messages []string) (*A
 	}
 
 	discussionText := strings.Join(messages, "\n")
-	fullPrompt := c.createTaskPrompt + "\nДиалог для анализа:\n" + discussionText + "\n\nОтвет в JSON формате:"
+	fullPrompt := c.createTaskPrompt +
+		"\n\n" + c.taskTemplatesPrompt +
+		"\n\nДиалог для анализа:\n" + discussionText +
+		"\n\nОтвет в JSON формате:"
 
 	request := OpenRouterRequest{
 		Model: c.model,
@@ -150,7 +164,7 @@ func (c *AIClient) EditTask(ctx context.Context, task *AnalyzedTask, userFeedbac
 		return nil, fmt.Errorf("failed to marshal task: %w", err)
 	}
 
-	fullPrompt := fmt.Sprintf(c.editTaskPrompt, string(taskJSON), userFeedback)
+	fullPrompt := fmt.Sprintf(c.editTaskPrompt, c.taskTemplatesPrompt, string(taskJSON), userFeedback)
 	log.Printf("[OpenRouter edit prompt]: %s", fullPrompt)
 
 	request := OpenRouterRequest{
@@ -237,8 +251,31 @@ func (c *AIClient) validateAndCompleteTask(task *AnalyzedTask) *AnalyzedTask {
 		task.Labels = []string{}
 	}
 
+	task.TaskType = normalizeTaskType(task.TaskType)
+
+	if task.MissingDetails == nil {
+		task.MissingDetails = []string{}
+	}
+
 	log.Printf("Parsed task: Title=%s, Priority=%d, Due=%s",
 		task.Title, task.Priority, task.DueDate)
 
 	return task
+}
+
+func normalizeTaskType(taskType string) string {
+	taskType = strings.ToLower(strings.TrimSpace(taskType))
+	taskType = strings.ReplaceAll(taskType, " ", "_")
+	taskType = strings.ReplaceAll(taskType, "-", "_")
+
+	switch taskType {
+	case "bug", "баг":
+		return "bug"
+	case "epic", "эпик":
+		return "epic"
+	case "":
+		return "task"
+	default:
+		return taskType
+	}
 }
