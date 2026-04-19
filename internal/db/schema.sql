@@ -47,9 +47,17 @@ CREATE TABLE IF NOT EXISTS draft_tasks (
     description TEXT,
     due_iso TEXT,
     priority INTEGER,
+    task_type TEXT,
+    labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+    missing_details JSONB NOT NULL DEFAULT '[]'::jsonb,
     assignee_note TEXT,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE draft_tasks
+    ADD COLUMN IF NOT EXISTS task_type TEXT,
+    ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS missing_details JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- Create created_tasks table
 CREATE TABLE IF NOT EXISTS created_tasks (
@@ -57,9 +65,25 @@ CREATE TABLE IF NOT EXISTS created_tasks (
     session_id INTEGER NOT NULL REFERENCES sessions(id),
     todoist_task_id TEXT NOT NULL,
     url TEXT NOT NULL,
+    title TEXT,
+    description TEXT,
+    due_iso TEXT,
+    priority INTEGER,
+    task_type TEXT,
+    labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+    assignee_note TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS created_tasks_session_id_idx ON created_tasks(session_id);
+
+ALTER TABLE created_tasks
+    ADD COLUMN IF NOT EXISTS title TEXT,
+    ADD COLUMN IF NOT EXISTS description TEXT,
+    ADD COLUMN IF NOT EXISTS due_iso TEXT,
+    ADD COLUMN IF NOT EXISTS priority INTEGER,
+    ADD COLUMN IF NOT EXISTS task_type TEXT,
+    ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS assignee_note TEXT;
 
 -- Create audit_edits table
 CREATE TABLE IF NOT EXISTS audit_edits (

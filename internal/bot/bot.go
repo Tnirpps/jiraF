@@ -161,17 +161,13 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 	if callbackResp.IsOwner {
 		b.clearPendingActionIfMatches(callback.Message.Chat.ID, callback.Message.MessageID)
 
-		// Delete buttons from the original message
-		editMsg := tgbotapi.NewEditMessageText(callback.Message.Chat.ID, callback.Message.MessageID, callback.Message.Text)
-		editMsg.ParseMode = "Markdown"
-		// Clear buttons
-		editMsg.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{
+		// Clear buttons without touching the already rendered message text/formatting.
+		editMarkup := tgbotapi.NewEditMessageReplyMarkup(callback.Message.Chat.ID, callback.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
-		}
+		})
 
-		// Send edited message without buttons
-		if _, err := b.api.Send(editMsg); err != nil {
-			log.Println("Error editing message:", err)
+		if _, err := b.api.Request(editMarkup); err != nil {
+			log.Println("Error clearing reply markup:", err)
 			return
 		}
 
@@ -354,11 +350,15 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		return
 	}
 	aiTask := &ai.AnalyzedTask{
-		Title:        draftTask.Title.String,
-		Description:  draftTask.Description.String,
-		DueDate:      draftTask.DueISO.String,
-		Priority:     int(draftTask.Priority.Int32),
-		PriorityText: "",
+		Title:          draftTask.Title.String,
+		Description:    draftTask.Description.String,
+		DueDate:        draftTask.DueISO.String,
+		Priority:       int(draftTask.Priority.Int32),
+		PriorityText:   "",
+		AssigneeNote:   draftTask.AssigneeNote.String,
+		Labels:         []string(draftTask.Labels),
+		TaskType:       draftTask.TaskType.String,
+		MissingDetails: []string(draftTask.MissingDetails),
 	}
 
 	editedTask, err := b.aiClient.EditTask(ctx, aiTask, message.Text)
@@ -368,7 +368,18 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		return
 	}
 
-	err = b.dbManager.SaveDraftTask(ctx, sessionIDInt, editedTask.Title, editedTask.Description, editedTask.DueDate, editedTask.Priority, "")
+	err = b.dbManager.SaveDraftTask(
+		ctx,
+		sessionIDInt,
+		editedTask.Title,
+		editedTask.Description,
+		editedTask.DueDate,
+		editedTask.Priority,
+		editedTask.TaskType,
+		editedTask.Labels,
+		editedTask.MissingDetails,
+		editedTask.AssigneeNote,
+	)
 	if err != nil {
 		log.Printf("Error saving edited task: %v", err)
 		b.sendMessage(message.Chat.ID, "❌ Error saving task")
@@ -382,12 +393,14 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		"*Описание:* %s\n"+
 		"*Срок выполнения:* %s\n"+
 		"*Приоритет:* %s\n"+
+		"*Исполнитель:* %s\n"+
 		"*Метки:* %s\n"+
 		"*Тип задачи:* %s\n",
 		editedTask.Title,
 		editedTask.Description,
 		commands.FormatDueDateForDisplay(editedTask.DueDate),
 		editedTask.PriorityText,
+		editedTask.AssigneeNote,
 		strings.Join(editedTask.Labels, ", "),
 		commands.FormatTaskTypeForBot(editedTask.TaskType))
 

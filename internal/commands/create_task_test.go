@@ -90,6 +90,8 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 			DueDate:        "friday",
 			Priority:       3,
 			PriorityText:   "Высокий",
+			AssigneeNote:   "@max",
+			Labels:         []string{"backend", "ai"},
 			TaskType:       "epic",
 			MissingDetails: []string{"срок", "риски"},
 		}
@@ -102,8 +104,19 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 		}).Return(analyzedTask, nil)
 
 		// Mock saving draft task
-		mockDB.On("SaveDraftTask", mock.Anything, 42, "Implement NLP feature", "Task details from discussion",
-			mock.Anything, 3, mock.Anything).Return(nil)
+		mockDB.On(
+			"SaveDraftTask",
+			mock.Anything,
+			42,
+			"Implement NLP feature",
+			"Task details from discussion",
+			mock.Anything,
+			3,
+			"epic",
+			[]string{"backend", "ai"},
+			[]string{"срок", "риски"},
+			"@max",
+		).Return(nil)
 
 		// Create a mock message
 		message := &tgbotapi.Message{
@@ -127,6 +140,8 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 		assert.Contains(t, result.Text, "Implement NLP feature")
 		assert.Contains(t, result.Text, "*Приоритет:* Высокий")
 		assert.Contains(t, result.Text, "*Тип задачи:* Эпик")
+		assert.Contains(t, result.Text, "*Исполнитель:* @max")
+		assert.Contains(t, result.Text, "*Метки:* backend, ai")
 		assert.Contains(t, result.Text, "*Можно ещё уточнить:* срок, риски")
 
 		// Check that the message has a reply markup with buttons

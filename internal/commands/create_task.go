@@ -124,8 +124,11 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 	log.Printf("AI analysis successful: Title: %s, Priority: %d, Due: %s",
 		analyzedTask.Title, analyzedTask.Priority, analyzedTask.DueDate)
 
-	// Extract assignee from messages
-	assigneeNote := c.extractAssignee(strings.Join(messageTexts, " "))
+	// Keep assignee as part of the canonical task model; fall back to simple extraction.
+	assigneeNote := analyzedTask.AssigneeNote
+	if assigneeNote == "" {
+		assigneeNote = c.extractAssignee(strings.Join(messageTexts, " "))
+	}
 
 	// Format due date in ISO
 	dueISO := c.convertToDueISO(analyzedTask.DueDate)
@@ -138,6 +141,9 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 		analyzedTask.Description,
 		dueISO,
 		analyzedTask.Priority,
+		analyzedTask.TaskType,
+		analyzedTask.Labels,
+		analyzedTask.MissingDetails,
 		assigneeNote,
 	)
 	if err != nil {
@@ -171,7 +177,8 @@ func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, ta
 	responseText := fmt.Sprintf(
 		`✅ Черновик задачи готов.
 *Название:* %s
-*Описание:* %s`,
+*Описание:* %s
+`,
 		task.Title, task.Description,
 	)
 
@@ -182,9 +189,13 @@ func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, ta
 	responseText += fmt.Sprintf("*Приоритет:* %s\n", task.PriorityText)
 	responseText += fmt.Sprintf("*Тип задачи:* %s\n", formatTaskType(task.TaskType))
 
-	// if assigneeNote != "" {
-	// 	responseText += fmt.Sprintf("*Assigned to:* %s\n\n", assigneeNote)
-	// }
+	if assigneeNote != "" {
+		responseText += fmt.Sprintf("*Исполнитель:* %s\n", assigneeNote)
+	}
+
+	if len(task.Labels) > 0 {
+		responseText += fmt.Sprintf("*Метки:* %s\n", strings.Join(task.Labels, ", "))
+	}
 
 	if len(task.MissingDetails) > 0 {
 		responseText += fmt.Sprintf(

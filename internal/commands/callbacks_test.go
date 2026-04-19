@@ -23,20 +23,39 @@ func TestCallbackHandler_HandleCallback_ParsesSessionIDCorrectly(t *testing.T) {
 
 	mockDB.On("IsSessionOwner", mock.Anything, sessionID, userID).Return(true, nil)
 	mockDB.On("GetDraftTask", mock.Anything, sessionID).Return(db.DraftTask{
-		SessionID:   sessionID,
-		Title:       sql.NullString{String: "Test Task", Valid: true},
-		Description: sql.NullString{String: "Test Description", Valid: true},
-		DueISO:      sql.NullString{String: "2026-04-01", Valid: true},
-		Priority:    sql.NullInt32{Int32: 3, Valid: true},
-		UpdatedAt:   time.Now(),
+		SessionID:      sessionID,
+		Title:          sql.NullString{String: "Test Task", Valid: true},
+		Description:    sql.NullString{String: "Test Description", Valid: true},
+		DueISO:         sql.NullString{String: "2026-04-01", Valid: true},
+		Priority:       sql.NullInt32{Int32: 3, Valid: true},
+		TaskType:       sql.NullString{String: "bug", Valid: true},
+		Labels:         db.StringSlice{"backend", "urgent"},
+		MissingDetails: db.StringSlice{"steps"},
+		AssigneeNote:   sql.NullString{String: "@ivan", Valid: true},
+		UpdatedAt:      time.Now(),
 	}, nil)
 	mockDB.On("GetTodoistProjectID", mock.Anything, chatID).Return("project123", nil)
-	mockTodoist.On("CreateTask", mock.Anything, mock.Anything).Return(&todoist.TaskResponse{
+	mockTodoist.On("CreateTask", mock.Anything, mock.MatchedBy(func(task *todoist.TaskRequest) bool {
+		return task != nil &&
+			task.Content == "Test Task" &&
+			task.Description == "Test Description" &&
+			task.ProjectID == "project123" &&
+			task.Priority == 3 &&
+			task.DueDate == "2026-04-01" &&
+			len(task.Labels) == 2 &&
+			task.Labels[0] == "backend" &&
+			task.Labels[1] == "urgent"
+	})).Return(&todoist.TaskResponse{
 		ID:      "todoist123",
 		Content: "Test Task",
 		URL:     "https://todoist.com/showTask?id=todoist123",
 	}, nil)
-	mockDB.On("SaveCreatedTask", mock.Anything, sessionID, "todoist123", mock.Anything).Return(nil)
+	mockDB.On("SaveCreatedTask", mock.Anything, mock.MatchedBy(func(task db.DraftTask) bool {
+		return task.SessionID == sessionID &&
+			task.TaskType.String == "bug" &&
+			len(task.Labels) == 2 &&
+			task.AssigneeNote.String == "@ivan"
+	}), "todoist123", mock.Anything).Return(nil)
 	mockDB.On("CloseSession", mock.Anything, chatID).Return(nil)
 
 	handler := NewCallbackHandler(mockTodoist, mockDB)

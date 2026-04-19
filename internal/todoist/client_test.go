@@ -62,6 +62,7 @@ func handleCreateTask(t *testing.T, w http.ResponseWriter, r *http.Request) {
 		Content:     taskReq.Content,
 		Description: taskReq.Description,
 		ProjectID:   taskReq.ProjectID,
+		Labels:      taskReq.Labels,
 		Priority:    taskReq.Priority,
 		URL:         "https://todoist.com/showTask?id=123",
 	}
@@ -185,6 +186,7 @@ func TestTodoistClient_CreateTask(t *testing.T) {
 	task := &TaskRequest{
 		Content:     "Test Task",
 		Description: "Test Description",
+		Labels:      []string{"backend", "urgent"},
 		Priority:    1,
 	}
 
@@ -198,6 +200,9 @@ func TestTodoistClient_CreateTask(t *testing.T) {
 	}
 	if taskResp.Content != "Test Task" {
 		t.Errorf("Expected task content 'Test Task', got '%s'", taskResp.Content)
+	}
+	if len(taskResp.Labels) != 2 || taskResp.Labels[0] != "backend" || taskResp.Labels[1] != "urgent" {
+		t.Errorf("Expected labels to round-trip, got %#v", taskResp.Labels)
 	}
 }
 

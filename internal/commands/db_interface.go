@@ -23,9 +23,9 @@ type DBManager interface {
 	GetSessionMessages(ctx context.Context, sessionID int) ([]db.Message, error)
 
 	// Methods for draft and created tasks
-	SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, assigneeNote string) error
+	SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, taskType string, labels, missingDetails []string, assigneeNote string) error
 	GetDraftTask(ctx context.Context, sessionID int) (db.DraftTask, error)
 	DeleteDraftTask(ctx context.Context, sessionID int) error
 
-	SaveCreatedTask(ctx context.Context, sessionID int, todoistTaskID, url string) error
+	SaveCreatedTask(ctx context.Context, task db.DraftTask, todoistTaskID, url string) error
 }

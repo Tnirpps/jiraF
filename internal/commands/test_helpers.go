@@ -101,8 +101,8 @@ func (m *MockDBManager) GetSessionMessages(ctx context.Context, sessionID int) (
 	return args.Get(0).([]db.Message), args.Error(1)
 }
 
-func (m *MockDBManager) SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, assigneeNote string) error {
-	args := m.Called(ctx, sessionID, title, description, dueISO, priority, assigneeNote)
+func (m *MockDBManager) SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, taskType string, labels, missingDetails []string, assigneeNote string) error {
+	args := m.Called(ctx, sessionID, title, description, dueISO, priority, taskType, labels, missingDetails, assigneeNote)
 	return args.Error(0)
 }
 
@@ -121,8 +121,8 @@ func (m *MockDBManager) DeleteDraftTask(ctx context.Context, sessionID int) erro
 	return args.Error(0)
 }
 
-func (m *MockDBManager) SaveCreatedTask(ctx context.Context, sessionID int, todoistTaskID, url string) error {
-	args := m.Called(ctx, sessionID, todoistTaskID, url)
+func (m *MockDBManager) SaveCreatedTask(ctx context.Context, task db.DraftTask, todoistTaskID, url string) error {
+	args := m.Called(ctx, task, todoistTaskID, url)
 	return args.Error(0)
 }
 

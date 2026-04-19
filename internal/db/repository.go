@@ -274,12 +274,23 @@ func (m *Manager) GetSessionMessages(ctx context.Context, sessionID int) ([]Mess
 }
 
 // SaveDraftTask saves a draft task for a session
-func (m *Manager) SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, assigneeNote string) error {
+func (m *Manager) SaveDraftTask(
+	ctx context.Context,
+	sessionID int,
+	title, description, dueISO string,
+	priority int,
+	taskType string,
+	labels, missingDetails []string,
+	assigneeNote string,
+) error {
 	query := `
-		INSERT INTO draft_tasks (session_id, title, description, due_iso, priority, assignee_note, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO draft_tasks (
+			session_id, title, description, due_iso, priority, task_type, labels, missing_details, assignee_note, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (session_id) DO UPDATE
-		SET title = $2, description = $3, due_iso = $4, priority = $5, assignee_note = $6, updated_at = $7
+		SET title = $2, description = $3, due_iso = $4, priority = $5, task_type = $6,
+		    labels = $7, missing_details = $8, assignee_note = $9, updated_at = $10
 	`
 
 	_, err := m.db.ExecContext(
@@ -290,6 +301,9 @@ func (m *Manager) SaveDraftTask(ctx context.Context, sessionID int, title, descr
 		sql.NullString{String: description, Valid: description != ""},
 		sql.NullString{String: dueISO, Valid: dueISO != ""},
 		sql.NullInt32{Int32: int32(priority), Valid: priority > 0},
+		sql.NullString{String: taskType, Valid: taskType != ""},
+		StringSlice(labels),
+		StringSlice(missingDetails),
 		sql.NullString{String: assigneeNote, Valid: assigneeNote != ""},
 		time.Now(),
 	)
@@ -302,7 +316,7 @@ func (m *Manager) SaveDraftTask(ctx context.Context, sessionID int, title, descr
 
 func (m *Manager) GetDraftTask(ctx context.Context, sessionID int) (DraftTask, error) {
 	const query = `
-        SELECT session_id, title, description, due_iso, priority, assignee_note, updated_at
+        SELECT session_id, title, description, due_iso, priority, task_type, labels, missing_details, assignee_note, updated_at
         FROM draft_tasks
         WHERE session_id = $1
     `
@@ -314,6 +328,9 @@ func (m *Manager) GetDraftTask(ctx context.Context, sessionID int) (DraftTask, e
 		&t.Description,
 		&t.DueISO,
 		&t.Priority,
+		&t.TaskType,
+		&t.Labels,
+		&t.MissingDetails,
 		&t.AssigneeNote,
 		&t.UpdatedAt,
 	)
@@ -341,13 +358,28 @@ func (m *Manager) DeleteDraftTask(ctx context.Context, sessionID int) error {
 	return nil
 }
 
-// SaveCreatedTask saves a created Todoist task
-func (m *Manager) SaveCreatedTask(ctx context.Context, sessionID int, todoistTaskID, url string) error {
+// SaveCreatedTask saves a created Todoist task and a snapshot of the fields used to create it.
+func (m *Manager) SaveCreatedTask(ctx context.Context, task DraftTask, todoistTaskID, url string) error {
 	query := `
-		INSERT INTO created_tasks (session_id, todoist_task_id, url)
-		VALUES ($1, $2, $3)
+		INSERT INTO created_tasks (
+			session_id, todoist_task_id, url, title, description, due_iso, priority, task_type, labels, assignee_note
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
-	_, err := m.db.ExecContext(ctx, query, sessionID, todoistTaskID, url)
+	_, err := m.db.ExecContext(
+		ctx,
+		query,
+		task.SessionID,
+		todoistTaskID,
+		url,
+		task.Title,
+		task.Description,
+		task.DueISO,
+		task.Priority,
+		task.TaskType,
+		task.Labels,
+		task.AssigneeNote,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to save created task: %w", err)
 	}

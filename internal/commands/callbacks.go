@@ -177,6 +177,7 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 		ProjectID:   projectID,
 		Priority:    int(task.Priority.Int32),
 		DueDate:     task.DueISO.String,
+		Labels:      []string(task.Labels),
 	}
 
 	resp, err := h.todoistClient.CreateTask(ctx, todoistRequest)
@@ -189,7 +190,7 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 		}
 	}
 
-	err = h.dbManager.SaveCreatedTask(ctx, sessionID, resp.ID, resp.URL)
+	err = h.dbManager.SaveCreatedTask(ctx, task, resp.ID, resp.URL)
 	if err != nil {
 		log.Printf("Error saving created task: %v", err)
 	}
