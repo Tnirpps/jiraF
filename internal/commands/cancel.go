@@ -42,13 +42,17 @@ func (c *CancelCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConf
 		return &msg
 	}
 
-	// Proceed with cancellation
-	err = c.dbManager.CloseSession(ctx, message.Chat.ID)
-	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error finishing discussion: %v", err))
-		return &msg
-	}
-
-	msg := tgbotapi.NewMessage(message.Chat.ID, "Обсуждение завершено без создания задачи.")
+	msg := tgbotapi.NewMessage(message.Chat.ID, "Завершить обсуждение без создания задачи?")
+	msg.ReplyMarkup = buildCancelDiscussionKeyboard(session.ID)
 	return &msg
+}
+
+func buildCancelDiscussionKeyboard(sessionID int) tgbotapi.InlineKeyboardMarkup {
+	sessionIDStr := fmt.Sprintf("%d", sessionID)
+	finishButton := tgbotapi.NewInlineKeyboardButtonData("🛑 Завершить", CallbackFinishDiscussion+CallbackDataSeparator+sessionIDStr)
+	continueButton := tgbotapi.NewInlineKeyboardButtonData("↩️ Продолжить", CallbackKeepDiscussion+CallbackDataSeparator+sessionIDStr)
+
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(finishButton, continueButton),
+	)
 }

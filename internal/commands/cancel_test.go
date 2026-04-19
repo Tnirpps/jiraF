@@ -18,14 +18,14 @@ func TestCancelCommand_Execute_Success(t *testing.T) {
 		OwnerID: chatID,
 		Status:  "open",
 	}, nil)
-	mockDBManager.On("CloseSession", mock.Anything, chatID).Return(nil)
 
 	cmd := NewCancelCommand(mockDBManager)
 	message := CreateCommandMessage(chatID, "/cancel")
 
 	response := cmd.Execute(message)
 
-	assert.Contains(t, response.Text, "Обсуждение завершено без создания задачи")
+	assert.Contains(t, response.Text, "Завершить обсуждение без создания задачи")
+	assert.NotNil(t, response.ReplyMarkup)
 	mockDBManager.AssertExpectations(t)
 }
 
@@ -45,6 +45,6 @@ func TestCancelCommand_Execute_NotOwner(t *testing.T) {
 
 	response := cmd.Execute(message)
 
-	assert.Contains(t, response.Text, "Только автор текущего обсуждения может завершить его")
+	assert.Contains(t, response.Text, "Только автор обсуждения может завершить его")
 	mockDBManager.AssertExpectations(t)
 }

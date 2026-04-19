@@ -56,8 +56,7 @@ func TestStartDiscussion_Success(t *testing.T) {
 	// Execute command
 	response := cmd.Execute(message)
 
-	// ✅ Fixed to Russian text
-	assert.Contains(t, response.Text, "Началось новое обсуждение")
+	assert.Contains(t, response.Text, "Обсуждение началось")
 
 	// Verify mock
 	mockDBManager.AssertExpectations(t)

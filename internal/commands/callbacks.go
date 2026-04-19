@@ -19,6 +19,10 @@ const (
 	CallbackEdit = "edit_task"
 	// CallbackCancel is used for canceling task creation
 	CallbackCancel = "cancel_task"
+	// CallbackFinishDiscussion is used for confirming discussion finish without task creation
+	CallbackFinishDiscussion = "finish_discussion"
+	// CallbackKeepDiscussion is used for declining discussion finish and continuing the session
+	CallbackKeepDiscussion = "keep_discussion"
 )
 
 // Separator used in callback data
@@ -75,6 +79,10 @@ func (h *CallbackHandler) HandleCallback(callback *tgbotapi.CallbackQuery) *Call
 		return h.handleEditCallback(callback, sessionIDStr)
 	case CallbackCancel:
 		return h.handleCancelCallback(callback, sessionIDStr)
+	case CallbackFinishDiscussion:
+		return h.handleFinishDiscussionCallback(callback, sessionIDStr)
+	case CallbackKeepDiscussion:
+		return h.handleKeepDiscussionCallback(callback, sessionIDStr)
 	default:
 		callbackCfg := tgbotapi.NewCallback(callback.ID, "Unknown callback type")
 		return &CallbackResponse{
@@ -82,6 +90,15 @@ func (h *CallbackHandler) HandleCallback(callback *tgbotapi.CallbackQuery) *Call
 			IsOwner:        false,
 		}
 	}
+}
+
+func (h *CallbackHandler) parseSessionID(sessionIDStr string) (int, error) {
+	sessionID, err := strconv.Atoi(sessionIDStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid session ID: %v", err)
+	}
+
+	return sessionID, nil
 }
 
 // verifySessionOwner checks if the user is the owner of the session
@@ -123,7 +140,7 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 		}
 	}
 
-	sessionID, err := strconv.Atoi(sessionIDStr)
+	sessionID, err := h.parseSessionID(sessionIDStr)
 	if err != nil {
 		log.Print(fmt.Errorf("invalid session ID: %v", err))
 		return nil
@@ -268,7 +285,7 @@ func (h *CallbackHandler) handleCancelCallback(callback *tgbotapi.CallbackQuery,
 
 	ctx := context.Background()
 
-	sessionID, err := strconv.Atoi(sessionIDStr)
+	sessionID, err := h.parseSessionID(sessionIDStr)
 	if err != nil {
 		log.Printf("Error parsing session ID on cancel: %v", err)
 		callbackCfg := tgbotapi.NewCallback(callback.ID, "Error: Invalid session ID")
@@ -287,6 +304,74 @@ func (h *CallbackHandler) handleCancelCallback(callback *tgbotapi.CallbackQuery,
 
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "❌ Создание задачи отменено")
 	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, "❌ Создание задачи отменено. Обсуждение продолжается.")
+	return &CallbackResponse{
+		CallbackConfig:  &callbackCfg,
+		IsOwner:         true,
+		ResponseMessage: &msg,
+	}
+}
+
+func (h *CallbackHandler) handleFinishDiscussionCallback(callback *tgbotapi.CallbackQuery, sessionIDStr string) *CallbackResponse {
+	isOwner, err := h.verifySessionOwner(sessionIDStr, int64(callback.From.ID))
+	if err != nil {
+		log.Printf("Error verifying session owner: %v", err)
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Error: Failed to verify session ownership")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        false,
+		}
+	}
+
+	if !isOwner {
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Только автор обсуждения может завершить его")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        false,
+		}
+	}
+
+	ctx := context.Background()
+	if err := h.dbManager.CloseSession(ctx, callback.Message.Chat.ID); err != nil {
+		log.Printf("Error closing session: %v", err)
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Не удалось завершить обсуждение")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        true,
+		}
+	}
+
+	callbackCfg := tgbotapi.NewCallback(callback.ID, "🛑 Обсуждение завершено")
+	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, "🛑 Обсуждение завершено без создания задачи.")
+
+	return &CallbackResponse{
+		CallbackConfig:  &callbackCfg,
+		IsOwner:         true,
+		ResponseMessage: &msg,
+	}
+}
+
+func (h *CallbackHandler) handleKeepDiscussionCallback(callback *tgbotapi.CallbackQuery, sessionIDStr string) *CallbackResponse {
+	isOwner, err := h.verifySessionOwner(sessionIDStr, int64(callback.From.ID))
+	if err != nil {
+		log.Printf("Error verifying session owner: %v", err)
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Error: Failed to verify session ownership")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        false,
+		}
+	}
+
+	if !isOwner {
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Только автор обсуждения может продолжить обсуждение")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        false,
+		}
+	}
+
+	callbackCfg := tgbotapi.NewCallback(callback.ID, "Обсуждение продолжается")
+	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, "↩️ Обсуждение продолжается.")
+
 	return &CallbackResponse{
 		CallbackConfig:  &callbackCfg,
 		IsOwner:         true,
