@@ -93,6 +93,40 @@ func TestCallbackHandler_HandleCallback_NonOwner(t *testing.T) {
 	mockDB.AssertExpectations(t)
 }
 
+func TestCallbackHandler_HandleCallback_CancelKeepsSessionOpen(t *testing.T) {
+	mockDB := new(MockDBManager)
+	mockTodoist := new(MockTodoistClient)
+
+	sessionID := 123
+	chatID := int64(789)
+	userID := int64(456)
+
+	mockDB.On("IsSessionOwner", mock.Anything, sessionID, userID).Return(true, nil)
+	mockDB.On("DeleteDraftTask", mock.Anything, sessionID).Return(nil)
+
+	handler := NewCallbackHandler(mockTodoist, mockDB)
+
+	callback := &tgbotapi.CallbackQuery{
+		ID: "test_callback_id",
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{ID: chatID},
+			MessageID: 101,
+		},
+		Data: "cancel_task:123",
+	}
+
+	response := handler.HandleCallback(callback)
+
+	assert.NotNil(t, response)
+	assert.True(t, response.IsOwner)
+	assert.NotNil(t, response.CallbackConfig)
+	assert.NotNil(t, response.ResponseMessage)
+	assert.Contains(t, response.ResponseMessage.Text, "Обсуждение продолжается")
+	mockDB.AssertNotCalled(t, "CloseSession", mock.Anything, chatID)
+	mockDB.AssertExpectations(t)
+}
+
 // Tests that malformed callback data without proper separator is handled gracefully
 func TestCallbackHandler_HandleCallback_InvalidCallbackData(t *testing.T) {
 	mockDB := new(MockDBManager)

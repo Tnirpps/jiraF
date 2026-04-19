@@ -25,6 +25,7 @@ type DBManager interface {
 	// Methods for draft and created tasks
 	SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, assigneeNote string) error
 	GetDraftTask(ctx context.Context, sessionID int) (db.DraftTask, error)
+	DeleteDraftTask(ctx context.Context, sessionID int) error
 
 	SaveCreatedTask(ctx context.Context, sessionID int, todoistTaskID, url string) error
 }

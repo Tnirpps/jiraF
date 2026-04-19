@@ -327,6 +327,20 @@ func (m *Manager) GetDraftTask(ctx context.Context, sessionID int) (DraftTask, e
 	return t, nil
 }
 
+// DeleteDraftTask removes the current draft task for a session.
+func (m *Manager) DeleteDraftTask(ctx context.Context, sessionID int) error {
+	const query = `
+		DELETE FROM draft_tasks
+		WHERE session_id = $1
+	`
+
+	if _, err := m.db.ExecContext(ctx, query, sessionID); err != nil {
+		return fmt.Errorf("failed to delete draft task: %w", err)
+	}
+
+	return nil
+}
+
 // SaveCreatedTask saves a created Todoist task
 func (m *Manager) SaveCreatedTask(ctx context.Context, sessionID int, todoistTaskID, url string) error {
 	query := `

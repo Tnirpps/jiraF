@@ -266,19 +266,30 @@ func (h *CallbackHandler) handleCancelCallback(callback *tgbotapi.CallbackQuery,
 		}
 	}
 
-	// ✅ Закрываем сессию при отмене
 	ctx := context.Background()
 
-	err = h.dbManager.CloseSession(ctx, callback.Message.Chat.ID)
+	sessionID, err := strconv.Atoi(sessionIDStr)
 	if err != nil {
-		log.Printf("Error closing session on cancel: %v", err)
+		log.Printf("Error parsing session ID on cancel: %v", err)
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Error: Invalid session ID")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        true,
+		}
+	}
+
+	err = h.dbManager.DeleteDraftTask(ctx, sessionID)
+	if err != nil {
+		log.Printf("Error deleting draft task on cancel: %v", err)
 	}
 
 	log.Printf("Canceling task from session %s", sessionIDStr)
 
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "❌ Создание задачи отменено")
+	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, "❌ Создание задачи отменено. Обсуждение продолжается, вы можете дописать детали и снова вызвать /create_task.")
 	return &CallbackResponse{
-		CallbackConfig: &callbackCfg,
-		IsOwner:        true,
+		CallbackConfig:  &callbackCfg,
+		IsOwner:         true,
+		ResponseMessage: &msg,
 	}
 }
