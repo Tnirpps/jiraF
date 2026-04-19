@@ -43,7 +43,7 @@ func New(telegramToken string, dbManager commands.DBManager, aiClient ai.Client,
 	registry := commands.NewRegistry()
 
 	// Create and register commands
-	startCmd := commands.NewStartCommand(registry)
+	startCmd := commands.NewStartCommand(registry, todoistClient, dbManager)
 	registry.Register(startCmd)
 
 	helpCmd := commands.NewHelpCommand(registry)
@@ -57,7 +57,7 @@ func New(telegramToken string, dbManager commands.DBManager, aiClient ai.Client,
 	setProjectCmd := commands.NewSetProjectCommand(todoistClient, dbManager)
 	registry.Register(setProjectCmd)
 
-	startDiscussionCmd := commands.NewStartDiscussionCommand(dbManager)
+	startDiscussionCmd := commands.NewStartDiscussionCommand(dbManager, todoistClient)
 	registry.Register(startDiscussionCmd)
 
 	cancelCmd := commands.NewCancelCommand(dbManager)

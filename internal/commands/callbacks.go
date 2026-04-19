@@ -19,6 +19,8 @@ const (
 	CallbackEdit = "edit_task"
 	// CallbackCancel is used for canceling task creation
 	CallbackCancel = "cancel_task"
+	// CallbackSelectProject is used for selecting the Todoist project for the chat
+	CallbackSelectProject = "select_project"
 	// CallbackFinishDiscussion is used for confirming discussion finish without task creation
 	CallbackFinishDiscussion = "finish_discussion"
 	// CallbackKeepDiscussion is used for declining discussion finish and continuing the session
@@ -79,6 +81,8 @@ func (h *CallbackHandler) HandleCallback(callback *tgbotapi.CallbackQuery) *Call
 		return h.handleEditCallback(callback, sessionIDStr)
 	case CallbackCancel:
 		return h.handleCancelCallback(callback, sessionIDStr)
+	case CallbackSelectProject:
+		return h.handleSelectProjectCallback(callback, sessionIDStr)
 	case CallbackFinishDiscussion:
 		return h.handleFinishDiscussionCallback(callback, sessionIDStr)
 	case CallbackKeepDiscussion:
@@ -371,6 +375,27 @@ func (h *CallbackHandler) handleKeepDiscussionCallback(callback *tgbotapi.Callba
 
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "Обсуждение продолжается")
 	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, "↩️ Обсуждение продолжается.")
+
+	return &CallbackResponse{
+		CallbackConfig:  &callbackCfg,
+		IsOwner:         true,
+		ResponseMessage: &msg,
+	}
+}
+
+func (h *CallbackHandler) handleSelectProjectCallback(callback *tgbotapi.CallbackQuery, projectID string) *CallbackResponse {
+	ctx := context.Background()
+	if err := h.dbManager.SetTodoistProjectID(ctx, callback.Message.Chat.ID, projectID); err != nil {
+		log.Printf("Error saving Todoist project ID: %v", err)
+		callbackCfg := tgbotapi.NewCallback(callback.ID, "Не удалось сохранить проект")
+		return &CallbackResponse{
+			CallbackConfig: &callbackCfg,
+			IsOwner:        true,
+		}
+	}
+
+	callbackCfg := tgbotapi.NewCallback(callback.ID, "✅ Проект выбран")
+	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, fmt.Sprintf("✅ Проект выбран. ID: %s", projectID))
 
 	return &CallbackResponse{
 		CallbackConfig:  &callbackCfg,

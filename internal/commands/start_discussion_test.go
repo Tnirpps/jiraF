@@ -3,8 +3,11 @@ package commands
 import (
 	"testing"
 
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/user/telegram-bot/internal/db"
+	"github.com/user/telegram-bot/internal/todoist"
 )
 
 // Tests StartDiscussionCommand behavior when no project ID is configured for the chat
@@ -17,9 +20,13 @@ func TestStartDiscussion_NoProjectID(t *testing.T) {
 	mockDBManager := new(MockDBManager)
 	ConfigureMockDB(mockDBManager).
 		WithProjectID(chatID, "", db.ErrProjectIDNotSet)
+	mockTodoistClient := new(MockTodoistClient)
+	mockTodoistClient.On("GetProjects", mock.Anything).Return([]todoist.Project{
+		{ID: "12345", Name: "Backend"},
+	}, nil)
 
 	// Create command
-	cmd := NewStartDiscussionCommand(mockDBManager)
+	cmd := NewStartDiscussionCommand(mockDBManager, mockTodoistClient)
 
 	// Create test message using helper function
 	message := CreateCommandMessage(chatID, "/start_discussion")
@@ -27,10 +34,13 @@ func TestStartDiscussion_NoProjectID(t *testing.T) {
 	// Execute command
 	response := cmd.Execute(message)
 
-	assert.Contains(t, response.Text, "Пожалуйста, сначала укажите идентификатор проекта")
+	assert.Contains(t, response.Text, "Сначала выберите проект Todoist")
+	_, ok := response.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup)
+	assert.True(t, ok)
 
 	// Verify mock
 	mockDBManager.AssertExpectations(t)
+	mockTodoistClient.AssertExpectations(t)
 }
 
 // Tests StartDiscussionCommand successful execution when project ID is configured
@@ -48,7 +58,8 @@ func TestStartDiscussion_Success(t *testing.T) {
 		WithStartSession(chatID, chatID, sessionID, nil)
 
 	// Create command
-	cmd := NewStartDiscussionCommand(mockDBManager)
+	mockTodoistClient := new(MockTodoistClient)
+	cmd := NewStartDiscussionCommand(mockDBManager, mockTodoistClient)
 
 	// Create test message using helper function
 	message := CreateCommandMessage(chatID, "/start_discussion")
@@ -76,7 +87,8 @@ func TestStartDiscussion_AlreadyActive(t *testing.T) {
 		WithStartSession(chatID, chatID, 0, db.ErrSessionAlreadyExists)
 
 	// Create command
-	cmd := NewStartDiscussionCommand(mockDBManager)
+	mockTodoistClient := new(MockTodoistClient)
+	cmd := NewStartDiscussionCommand(mockDBManager, mockTodoistClient)
 
 	// Create test message using helper function
 	message := CreateCommandMessage(chatID, "/start_discussion")

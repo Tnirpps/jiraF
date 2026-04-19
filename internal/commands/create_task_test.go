@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/db"
+	"github.com/user/telegram-bot/internal/todoist"
 )
 
 // MockAIClient is a mock implementation of the AI Client interface
@@ -140,6 +141,7 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 
 	// Tests behavior when user tries to create task without active discussion session
 	t.Run("No active session", func(t *testing.T) {
+		mockDB.On("GetTodoistProjectID", mock.Anything, int64(456)).Return("project456", nil)
 		mockDB.On("HasActiveSession", mock.Anything, int64(456)).Return(false, nil)
 
 		message := &tgbotapi.Message{
@@ -155,6 +157,30 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 
 		assert.NotNil(t, result)
 		assert.Contains(t, result.Text, "Нет активного обсуждения")
+	})
+
+	t.Run("No selected project", func(t *testing.T) {
+		mockDB.On("GetTodoistProjectID", mock.Anything, int64(999)).Return("", db.ErrProjectIDNotSet)
+		mockTodoist.On("GetProjects", mock.Anything).Return([]todoist.Project{
+			{ID: "p1", Name: "Backend"},
+		}, nil)
+
+		message := &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{
+				ID: 999,
+			},
+			From: &tgbotapi.User{
+				ID: 111,
+			},
+		}
+
+		result := cmd.Execute(message)
+
+		assert.NotNil(t, result)
+		assert.Contains(t, result.Text, "Сначала выберите проект Todoist")
+		markup, ok := result.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup)
+		assert.True(t, ok)
+		assert.Equal(t, "Backend", markup.InlineKeyboard[0][0].Text)
 	})
 }
 

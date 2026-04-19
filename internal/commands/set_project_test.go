@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/user/telegram-bot/internal/todoist"
@@ -58,107 +59,36 @@ func (m *MockTodoistClient) DeleteTask(ctx context.Context, taskID string) error
 	return args.Error(0)
 }
 
-// Tests successful execution of SetProjectCommand when a valid project ID is provided
-// Verifies that the project ID is saved to the database and confirmation message is returned
-func TestSetProjectCommand_Execute_Success(t *testing.T) {
-	// Create mocks
+func TestSetProjectCommand_Execute_ShowsProjects(t *testing.T) {
 	mockTodoistClient := new(MockTodoistClient)
 	mockDBManager := new(MockDBManager)
 
-	// Create command
 	cmd := NewSetProjectCommand(mockTodoistClient, mockDBManager)
 
-	// Test data
 	chatID := int64(123456789)
-	projectID := "12345"
+	projects := []todoist.Project{
+		{ID: "12345", Name: "Backend"},
+		{ID: "67890", Name: "Frontend"},
+	}
 
-	// Set up expectations
-	mockTodoistClient.On("GetProjects", mock.Anything).Return([]todoist.Project{
-		{ID: projectID, Name: "Test Project"},
-	}, nil)
+	mockTodoistClient.On("GetProjects", mock.Anything).Return(projects, nil)
 
-	// Configure DBManager with fluent API
-	ConfigureMockDB(mockDBManager).
-		WithSetProjectID(chatID, projectID, nil)
-
-	// Create test message using helper function
-	message := CreateCommandMessage(chatID, "/set_project", projectID)
-
-	// Execute command
+	message := CreateCommandMessage(chatID, "/set_project")
 	response := cmd.Execute(message)
 
-	assert.Contains(t, response.Text, "Для этого чата установлен проект Todoist: "+projectID)
+	assert.Contains(t, response.Text, "Выберите проект Todoist")
+	markup, ok := response.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup)
+	assert.True(t, ok)
+	assert.Len(t, markup.InlineKeyboard, 2)
+	assert.Equal(t, "Backend", markup.InlineKeyboard[0][0].Text)
+	if assert.NotNil(t, markup.InlineKeyboard[0][0].CallbackData) {
+		assert.Equal(t, "select_project:12345", *markup.InlineKeyboard[0][0].CallbackData)
+	}
+	assert.Equal(t, "Frontend", markup.InlineKeyboard[1][0].Text)
+	if assert.NotNil(t, markup.InlineKeyboard[1][0].CallbackData) {
+		assert.Equal(t, "select_project:67890", *markup.InlineKeyboard[1][0].CallbackData)
+	}
 
-	// Verify mocks
 	mockTodoistClient.AssertExpectations(t)
-	mockDBManager.AssertExpectations(t)
-}
-
-// Tests SetProjectCommand behavior when an invalid project ID is provided
-// Verifies that the command rejects the ID if it doesn't exist in Todoist projects list
-func TestSetProjectCommand_Execute_InvalidProject(t *testing.T) {
-	// Create mocks
-	mockTodoistClient := new(MockTodoistClient)
-	mockDBManager := new(MockDBManager)
-
-	// Create command
-	cmd := NewSetProjectCommand(mockTodoistClient, mockDBManager)
-
-	// Test data
-	chatID := int64(123456789)
-	projectID := "12345"
-
-	// Set up expectations
-	mockTodoistClient.On("GetProjects", mock.Anything).Return([]todoist.Project{
-		{ID: "98765", Name: "Different Project"},
-	}, nil)
-
-	// Create test message using helper function
-	message := CreateCommandMessage(chatID, "/set_project", projectID)
-
-	// Execute command
-	response := cmd.Execute(message)
-
-	assert.Contains(t, response.Text, "Неверный ID")
-
-	// Verify mocks
-	mockTodoistClient.AssertExpectations(t)
-	mockDBManager.AssertNotCalled(t, "SetTodoistProjectID")
-}
-
-// Tests SetProjectCommand ability to extract project ID from a Todoist URL
-// Verifies that the command correctly parses the ID from URL format and saves it
-func TestSetProjectCommand_Execute_ExtractProjectIDFromURL(t *testing.T) {
-	// Create mocks
-	mockTodoistClient := new(MockTodoistClient)
-	mockDBManager := new(MockDBManager)
-
-	// Create command
-	cmd := NewSetProjectCommand(mockTodoistClient, mockDBManager)
-
-	// Test data
-	chatID := int64(123456789)
-	projectID := "12345"
-	projectURL := "https://todoist.com/app/projects/12345"
-
-	// Set up expectations
-	mockTodoistClient.On("GetProjects", mock.Anything).Return([]todoist.Project{
-		{ID: projectID, Name: "Test Project"},
-	}, nil)
-
-	// Configure DBManager with fluent API
-	ConfigureMockDB(mockDBManager).
-		WithSetProjectID(chatID, projectID, nil)
-
-	// Create test message using helper function
-	message := CreateCommandMessage(chatID, "/set_project", projectURL)
-
-	// Execute command
-	response := cmd.Execute(message)
-	
-	assert.Contains(t, response.Text, "Для этого чата установлен проект Todoist: "+projectID)
-
-	// Verify mocks
-	mockTodoistClient.AssertExpectations(t)
-	mockDBManager.AssertExpectations(t)
+	mockDBManager.AssertNotCalled(t, "SetTodoistProjectID", mock.Anything, mock.Anything, mock.Anything)
 }

@@ -193,6 +193,36 @@ func TestCallbackHandler_HandleCallback_KeepDiscussion(t *testing.T) {
 	mockDB.AssertExpectations(t)
 }
 
+func TestCallbackHandler_HandleCallback_SelectProject(t *testing.T) {
+	mockDB := new(MockDBManager)
+	mockTodoist := new(MockTodoistClient)
+
+	chatID := int64(789)
+
+	mockDB.On("SetTodoistProjectID", mock.Anything, chatID, "project123").Return(nil)
+
+	handler := NewCallbackHandler(mockTodoist, mockDB)
+
+	callback := &tgbotapi.CallbackQuery{
+		ID:   "test_callback_id",
+		From: &tgbotapi.User{ID: 456},
+		Message: &tgbotapi.Message{
+			Chat:      &tgbotapi.Chat{ID: chatID},
+			MessageID: 101,
+		},
+		Data: "select_project:project123",
+	}
+
+	response := handler.HandleCallback(callback)
+
+	assert.NotNil(t, response)
+	assert.True(t, response.IsOwner)
+	assert.NotNil(t, response.CallbackConfig)
+	assert.NotNil(t, response.ResponseMessage)
+	assert.Contains(t, response.ResponseMessage.Text, "Проект выбран")
+	mockDB.AssertExpectations(t)
+}
+
 // Tests that malformed callback data without proper separator is handled gracefully
 func TestCallbackHandler_HandleCallback_InvalidCallbackData(t *testing.T) {
 	mockDB := new(MockDBManager)

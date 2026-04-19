@@ -10,6 +10,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/user/telegram-bot/internal/ai"
+	"github.com/user/telegram-bot/internal/db"
 	"github.com/user/telegram-bot/internal/todoist"
 )
 
@@ -42,6 +43,15 @@ func (c *CreateTaskCommand) Description() string {
 // Execute handles the command execution
 func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig {
 	ctx := context.Background()
+
+	if _, err := c.dbManager.GetTodoistProjectID(ctx, message.Chat.ID); err != nil {
+		if err == db.ErrProjectIDNotSet {
+			return buildProjectSelectionMessage(ctx, c.todoistClient, message.Chat.ID, "Сначала выберите проект Todoist:")
+		}
+		log.Printf("Error getting project: %v", err)
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error getting project: %v", err))
+		return &msg
+	}
 
 	// Check if there's an active session
 	hasActive, err := c.dbManager.HasActiveSession(ctx, message.Chat.ID)
@@ -81,14 +91,6 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 
 	if len(messages) == 0 {
 		msg := tgbotapi.NewMessage(message.Chat.ID, "В обсуждении нет сообщений, чтобы создать задачу.")
-		return &msg
-	}
-
-	// Get project ID for this chat (will be used in the confirm stage)
-	_, err = c.dbManager.GetTodoistProjectID(ctx, message.Chat.ID)
-	if err != nil {
-		log.Printf("Error getting project: %v", err)
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error getting project: %v", err))
 		return &msg
 	}
 
