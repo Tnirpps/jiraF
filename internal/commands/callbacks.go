@@ -286,7 +286,7 @@ func (h *CallbackHandler) handleCancelCallback(callback *tgbotapi.CallbackQuery,
 	log.Printf("Canceling task from session %s", sessionIDStr)
 
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "❌ Создание задачи отменено")
-	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, "❌ Создание задачи отменено. Обсуждение продолжается, вы можете дописать детали и снова вызвать /create_task.")
+	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, "❌ Создание задачи отменено. Обсуждение продолжается.")
 	return &CallbackResponse{
 		CallbackConfig:  &callbackCfg,
 		IsOwner:         true,

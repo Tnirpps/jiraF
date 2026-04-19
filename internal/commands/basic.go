@@ -12,7 +12,7 @@ func GetMainKeyboard() tgbotapi.ReplyKeyboardMarkup {
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("✅ Создать задачу"),
-			tgbotapi.NewKeyboardButton("❌ Отменить"),
+			tgbotapi.NewKeyboardButton("🛑 Завершить обсуждение"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📋 Список задач"),
@@ -98,7 +98,7 @@ func (c *HelpCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig
 📁 /set_project — выбрать проект Todoist для этого чата
 💬 /start_discussion — начать сбор сообщений для создания задачи
 ✅ /create_task — создать задачу на основе обсуждения
-❌ /cancel — отменить текущее обсуждение
+🛑 /cancel — завершить обсуждение без задачи
 📋 /list — показать список задач
 ❓ /help — показать эту справку
 

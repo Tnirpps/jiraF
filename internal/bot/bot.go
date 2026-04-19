@@ -273,7 +273,7 @@ func (b *Bot) handleButtonText(message *tgbotapi.Message) bool {
 		"📁 Выбрать проект":    "set_project",
 		"💬 Начать обсуждение": "start_discussion",
 		"✅ Создать задачу":    "create_task",
-		"❌ Отменить":          "cancel",
+		"🛑 Завершить обсуждение": "cancel",
 		"📋 Список задач":      "list",
 		"❓ Помощь":            "help",
 	}

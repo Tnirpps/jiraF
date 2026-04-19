@@ -152,7 +152,7 @@ func CreateInlineKeyboard(sessionID int) tgbotapi.InlineKeyboardMarkup {
 	sessionIDStr := fmt.Sprintf("%d", sessionID)
 	confirmButton := tgbotapi.NewInlineKeyboardButtonData("✅ Подтвердить", CallbackConfirm+CallbackDataSeparator+sessionIDStr)
 	editButton := tgbotapi.NewInlineKeyboardButtonData("✏️ Редактировать", CallbackEdit+CallbackDataSeparator+sessionIDStr)
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", CallbackCancel+CallbackDataSeparator+sessionIDStr)
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить создание", CallbackCancel+CallbackDataSeparator+sessionIDStr)
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(confirmButton, editButton, cancelButton),

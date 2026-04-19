@@ -23,12 +23,12 @@ func TestCallbackHandler_HandleCallback_ParsesSessionIDCorrectly(t *testing.T) {
 
 	mockDB.On("IsSessionOwner", mock.Anything, sessionID, userID).Return(true, nil)
 	mockDB.On("GetDraftTask", mock.Anything, sessionID).Return(db.DraftTask{
-		SessionID: sessionID,
-		Title:     sql.NullString{String: "Test Task", Valid: true},
+		SessionID:   sessionID,
+		Title:       sql.NullString{String: "Test Task", Valid: true},
 		Description: sql.NullString{String: "Test Description", Valid: true},
-		DueISO:    sql.NullString{String: "2026-04-01", Valid: true},
-		Priority:  sql.NullInt32{Int32: 3, Valid: true},
-		UpdatedAt: time.Now(),
+		DueISO:      sql.NullString{String: "2026-04-01", Valid: true},
+		Priority:    sql.NullInt32{Int32: 3, Valid: true},
+		UpdatedAt:   time.Now(),
 	}, nil)
 	mockDB.On("GetTodoistProjectID", mock.Anything, chatID).Return("project123", nil)
 	mockTodoist.On("CreateTask", mock.Anything, mock.Anything).Return(&todoist.TaskResponse{
@@ -42,10 +42,10 @@ func TestCallbackHandler_HandleCallback_ParsesSessionIDCorrectly(t *testing.T) {
 	handler := NewCallbackHandler(mockTodoist, mockDB)
 
 	callback := &tgbotapi.CallbackQuery{
-		ID: "test_callback_id",
+		ID:   "test_callback_id",
 		From: &tgbotapi.User{ID: userID},
 		Message: &tgbotapi.Message{
-			Chat: &tgbotapi.Chat{ID: chatID},
+			Chat:      &tgbotapi.Chat{ID: chatID},
 			MessageID: 101,
 		},
 		Data: "confirm_task:123",
@@ -74,10 +74,10 @@ func TestCallbackHandler_HandleCallback_NonOwner(t *testing.T) {
 	handler := NewCallbackHandler(mockTodoist, mockDB)
 
 	callback := &tgbotapi.CallbackQuery{
-		ID: "test_callback_id",
+		ID:   "test_callback_id",
 		From: &tgbotapi.User{ID: userID},
 		Message: &tgbotapi.Message{
-			Chat: &tgbotapi.Chat{ID: 789},
+			Chat:      &tgbotapi.Chat{ID: 789},
 			MessageID: 101,
 		},
 		Data: "cancel_task:123",
@@ -107,10 +107,10 @@ func TestCallbackHandler_HandleCallback_CancelKeepsSessionOpen(t *testing.T) {
 	handler := NewCallbackHandler(mockTodoist, mockDB)
 
 	callback := &tgbotapi.CallbackQuery{
-		ID: "test_callback_id",
+		ID:   "test_callback_id",
 		From: &tgbotapi.User{ID: userID},
 		Message: &tgbotapi.Message{
-			Chat: &tgbotapi.Chat{ID: chatID},
+			Chat:      &tgbotapi.Chat{ID: chatID},
 			MessageID: 101,
 		},
 		Data: "cancel_task:123",
@@ -135,7 +135,7 @@ func TestCallbackHandler_HandleCallback_InvalidCallbackData(t *testing.T) {
 	handler := NewCallbackHandler(mockTodoist, mockDB)
 
 	callback := &tgbotapi.CallbackQuery{
-		ID: "test_callback_id",
+		ID:   "test_callback_id",
 		From: &tgbotapi.User{ID: 456},
 		Data: "invalid_format",
 	}
@@ -159,7 +159,7 @@ func TestCallbackHandler_HandleCallback_UnknownCallbackType(t *testing.T) {
 	handler := NewCallbackHandler(mockTodoist, mockDB)
 
 	callback := &tgbotapi.CallbackQuery{
-		ID: "test_callback_id",
+		ID:   "test_callback_id",
 		From: &tgbotapi.User{ID: 456},
 		Data: "unknown_action:123",
 	}
@@ -182,10 +182,10 @@ func TestCallbackHandler_HandleCallback_InvalidSessionID(t *testing.T) {
 	handler := NewCallbackHandler(mockTodoist, mockDB)
 
 	callback := &tgbotapi.CallbackQuery{
-		ID: "test_callback_id",
+		ID:   "test_callback_id",
 		From: &tgbotapi.User{ID: 456},
 		Message: &tgbotapi.Message{
-			Chat: &tgbotapi.Chat{ID: 789},
+			Chat:      &tgbotapi.Chat{ID: 789},
 			MessageID: 101,
 		},
 		Data: "confirm_task:abc",

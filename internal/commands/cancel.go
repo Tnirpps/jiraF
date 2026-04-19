@@ -22,7 +22,7 @@ func (c *CancelCommand) Name() string {
 }
 
 func (c *CancelCommand) Description() string {
-	return "Отменить текущее обсуждение"
+	return "Завершить обсуждение без задачи"
 }
 
 func (c *CancelCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig {
@@ -31,24 +31,24 @@ func (c *CancelCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConf
 	// Get the active session
 	session, err := c.dbManager.GetActiveSession(ctx, message.Chat.ID)
 	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Нет активного обсуждения для отмены.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Нет активного обсуждения.")
 		return &msg
 	}
 
 	// Check if the user is the session owner
 	senderID := int64(message.From.ID)
 	if session.OwnerID != senderID {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Только автор текущего обсуждение может отменить его.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Только автор обсуждения может завершить его.")
 		return &msg
 	}
 
 	// Proceed with cancellation
 	err = c.dbManager.CloseSession(ctx, message.Chat.ID)
 	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error canceling discussion: %v", err))
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error finishing discussion: %v", err))
 		return &msg
 	}
 
-	msg := tgbotapi.NewMessage(message.Chat.ID, "Обсуждение отменено. Все собранные сообщения удалены.")
+	msg := tgbotapi.NewMessage(message.Chat.ID, "Обсуждение завершено без создания задачи.")
 	return &msg
 }

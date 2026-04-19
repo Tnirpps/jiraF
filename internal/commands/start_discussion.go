@@ -52,7 +52,7 @@ func (c *StartDiscussionCommand) Execute(message *tgbotapi.Message) *tgbotapi.Me
 
 	log.Printf("Start for id: %s session: %d\n", projectID, sessionID)
 
-	responseText := "Началось новое обсуждение задачи!\nВсе сообщения будут сохраняться до тех пор, пока вы не создадите задачу (/create_task) или не отмените процесс (/cancel)"
+	responseText := "Обсуждение началось.\nСообщения будут сохраняться, пока вы не создадите задачу (/create_task) или не завершите обсуждение (/cancel)."
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, responseText)
 	return &msg
