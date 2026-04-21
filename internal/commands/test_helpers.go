@@ -101,8 +101,8 @@ func (m *MockDBManager) GetSessionMessages(ctx context.Context, sessionID int) (
 	return args.Get(0).([]db.Message), args.Error(1)
 }
 
-func (m *MockDBManager) SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, assigneeNote string) error {
-	args := m.Called(ctx, sessionID, title, description, dueISO, priority, assigneeNote)
+func (m *MockDBManager) SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, taskType string, labels, missingDetails []string, assigneeNote string) error {
+	args := m.Called(ctx, sessionID, title, description, dueISO, priority, taskType, labels, missingDetails, assigneeNote)
 	return args.Error(0)
 }
 
@@ -116,8 +116,13 @@ func (m *MockDBManager) GetDraftTask(ctx context.Context, sessionID int) (db.Dra
 	return db.DraftTask{}, args.Error(1)
 }
 
-func (m *MockDBManager) SaveCreatedTask(ctx context.Context, sessionID int, todoistTaskID, url string) error {
-	args := m.Called(ctx, sessionID, todoistTaskID, url)
+func (m *MockDBManager) DeleteDraftTask(ctx context.Context, sessionID int) error {
+	args := m.Called(ctx, sessionID)
+	return args.Error(0)
+}
+
+func (m *MockDBManager) SaveCreatedTask(ctx context.Context, task db.DraftTask, todoistTaskID, url string) error {
+	args := m.Called(ctx, task, todoistTaskID, url)
 	return args.Error(0)
 }
 
@@ -164,6 +169,12 @@ func (h *MockDBHelper) WithIsSessionOwner(sessionID int, userID int64, isOwner b
 // WithCloseSession sets up the mock to expect and respond to CloseSession calls
 func (h *MockDBHelper) WithCloseSession(chatID int64, err error) *MockDBHelper {
 	h.mock.On("CloseSession", mock.Anything, chatID).Return(err)
+	return h
+}
+
+// WithDeleteDraftTask sets up the mock to expect and respond to DeleteDraftTask calls.
+func (h *MockDBHelper) WithDeleteDraftTask(sessionID int, err error) *MockDBHelper {
+	h.mock.On("DeleteDraftTask", mock.Anything, sessionID).Return(err)
 	return h
 }
 

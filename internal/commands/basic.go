@@ -1,7 +1,10 @@
 package commands
 
 import (
+	"context"
+
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/user/telegram-bot/internal/todoist"
 )
 
 func GetMainKeyboard() tgbotapi.ReplyKeyboardMarkup {
@@ -12,7 +15,7 @@ func GetMainKeyboard() tgbotapi.ReplyKeyboardMarkup {
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("✅ Создать задачу"),
-			tgbotapi.NewKeyboardButton("❌ Отменить"),
+			tgbotapi.NewKeyboardButton("🛑 Завершить обсуждение"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📋 Список задач"),
@@ -26,13 +29,17 @@ func GetMainKeyboard() tgbotapi.ReplyKeyboardMarkup {
 
 // StartCommand handles the /start command
 type StartCommand struct {
-	registry *Registry
+	registry      *Registry
+	todoistClient todoist.Client
+	dbManager     DBManager
 }
 
 // NewStartCommand creates a new start command handler
-func NewStartCommand(registry *Registry) *StartCommand {
+func NewStartCommand(registry *Registry, todoistClient todoist.Client, dbManager DBManager) *StartCommand {
 	return &StartCommand{
-		registry: registry,
+		registry:      registry,
+		todoistClient: todoistClient,
+		dbManager:     dbManager,
 	}
 }
 
@@ -66,7 +73,12 @@ func (c *StartCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfi
 	msg := tgbotapi.NewMessage(message.Chat.ID, welcomeText)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = GetMainKeyboard()
-	return &msg
+
+	if _, err := c.dbManager.GetTodoistProjectID(context.Background(), message.Chat.ID); err == nil {
+		return &msg
+	}
+
+	return buildProjectSelectionMessage(context.Background(), c.todoistClient, message.Chat.ID, welcomeText+"\n\nСначала выберите проект Todoist:")
 }
 
 // HelpCommand handles the /help command
@@ -98,7 +110,7 @@ func (c *HelpCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig
 📁 /set_project — выбрать проект Todoist для этого чата
 💬 /start_discussion — начать сбор сообщений для создания задачи
 ✅ /create_task — создать задачу на основе обсуждения
-❌ /cancel — отменить текущее обсуждение
+🛑 /cancel — завершить обсуждение без задачи
 📋 /list — показать список задач
 ❓ /help — показать эту справку
 

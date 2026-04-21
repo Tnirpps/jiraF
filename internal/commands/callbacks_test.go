@@ -23,29 +23,48 @@ func TestCallbackHandler_HandleCallback_ParsesSessionIDCorrectly(t *testing.T) {
 
 	mockDB.On("IsSessionOwner", mock.Anything, sessionID, userID).Return(true, nil)
 	mockDB.On("GetDraftTask", mock.Anything, sessionID).Return(db.DraftTask{
-		SessionID: sessionID,
-		Title:     sql.NullString{String: "Test Task", Valid: true},
-		Description: sql.NullString{String: "Test Description", Valid: true},
-		DueISO:    sql.NullString{String: "2026-04-01", Valid: true},
-		Priority:  sql.NullInt32{Int32: 3, Valid: true},
-		UpdatedAt: time.Now(),
+		SessionID:      sessionID,
+		Title:          sql.NullString{String: "Test Task", Valid: true},
+		Description:    sql.NullString{String: "Test Description", Valid: true},
+		DueISO:         sql.NullString{String: "2026-04-01", Valid: true},
+		Priority:       sql.NullInt32{Int32: 3, Valid: true},
+		TaskType:       sql.NullString{String: "bug", Valid: true},
+		Labels:         db.StringSlice{"backend", "urgent"},
+		MissingDetails: db.StringSlice{"steps"},
+		AssigneeNote:   sql.NullString{String: "@ivan", Valid: true},
+		UpdatedAt:      time.Now(),
 	}, nil)
 	mockDB.On("GetTodoistProjectID", mock.Anything, chatID).Return("project123", nil)
-	mockTodoist.On("CreateTask", mock.Anything, mock.Anything).Return(&todoist.TaskResponse{
+	mockTodoist.On("CreateTask", mock.Anything, mock.MatchedBy(func(task *todoist.TaskRequest) bool {
+		return task != nil &&
+			task.Content == "Test Task" &&
+			task.Description == "Test Description" &&
+			task.ProjectID == "project123" &&
+			task.Priority == 3 &&
+			task.DueDate == "2026-04-01" &&
+			len(task.Labels) == 2 &&
+			task.Labels[0] == "backend" &&
+			task.Labels[1] == "urgent"
+	})).Return(&todoist.TaskResponse{
 		ID:      "todoist123",
 		Content: "Test Task",
 		URL:     "https://todoist.com/showTask?id=todoist123",
 	}, nil)
-	mockDB.On("SaveCreatedTask", mock.Anything, sessionID, "todoist123", mock.Anything).Return(nil)
+	mockDB.On("SaveCreatedTask", mock.Anything, mock.MatchedBy(func(task db.DraftTask) bool {
+		return task.SessionID == sessionID &&
+			task.TaskType.String == "bug" &&
+			len(task.Labels) == 2 &&
+			task.AssigneeNote.String == "@ivan"
+	}), "todoist123", mock.Anything).Return(nil)
 	mockDB.On("CloseSession", mock.Anything, chatID).Return(nil)
 
 	handler := NewCallbackHandler(mockTodoist, mockDB)
 
 	callback := &tgbotapi.CallbackQuery{
-		ID: "test_callback_id",
+		ID:   "test_callback_id",
 		From: &tgbotapi.User{ID: userID},
 		Message: &tgbotapi.Message{
-			Chat: &tgbotapi.Chat{ID: chatID},
+			Chat:      &tgbotapi.Chat{ID: chatID},
 			MessageID: 101,
 		},
 		Data: "confirm_task:123",
@@ -74,10 +93,10 @@ func TestCallbackHandler_HandleCallback_NonOwner(t *testing.T) {
 	handler := NewCallbackHandler(mockTodoist, mockDB)
 
 	callback := &tgbotapi.CallbackQuery{
-		ID: "test_callback_id",
+		ID:   "test_callback_id",
 		From: &tgbotapi.User{ID: userID},
 		Message: &tgbotapi.Message{
-			Chat: &tgbotapi.Chat{ID: 789},
+			Chat:      &tgbotapi.Chat{ID: 789},
 			MessageID: 101,
 		},
 		Data: "cancel_task:123",
@@ -93,6 +112,136 @@ func TestCallbackHandler_HandleCallback_NonOwner(t *testing.T) {
 	mockDB.AssertExpectations(t)
 }
 
+func TestCallbackHandler_HandleCallback_CancelKeepsSessionOpen(t *testing.T) {
+	mockDB := new(MockDBManager)
+	mockTodoist := new(MockTodoistClient)
+
+	sessionID := 123
+	chatID := int64(789)
+	userID := int64(456)
+
+	mockDB.On("IsSessionOwner", mock.Anything, sessionID, userID).Return(true, nil)
+	mockDB.On("DeleteDraftTask", mock.Anything, sessionID).Return(nil)
+
+	handler := NewCallbackHandler(mockTodoist, mockDB)
+
+	callback := &tgbotapi.CallbackQuery{
+		ID:   "test_callback_id",
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			Chat:      &tgbotapi.Chat{ID: chatID},
+			MessageID: 101,
+		},
+		Data: "cancel_task:123",
+	}
+
+	response := handler.HandleCallback(callback)
+
+	assert.NotNil(t, response)
+	assert.True(t, response.IsOwner)
+	assert.NotNil(t, response.CallbackConfig)
+	assert.NotNil(t, response.ResponseMessage)
+	assert.Contains(t, response.ResponseMessage.Text, "Обсуждение продолжается")
+	mockDB.AssertNotCalled(t, "CloseSession", mock.Anything, chatID)
+	mockDB.AssertExpectations(t)
+}
+
+func TestCallbackHandler_HandleCallback_FinishDiscussion(t *testing.T) {
+	mockDB := new(MockDBManager)
+	mockTodoist := new(MockTodoistClient)
+
+	sessionID := 123
+	chatID := int64(789)
+	userID := int64(456)
+
+	mockDB.On("IsSessionOwner", mock.Anything, sessionID, userID).Return(true, nil)
+	mockDB.On("CloseSession", mock.Anything, chatID).Return(nil)
+
+	handler := NewCallbackHandler(mockTodoist, mockDB)
+
+	callback := &tgbotapi.CallbackQuery{
+		ID:   "test_callback_id",
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			Chat:      &tgbotapi.Chat{ID: chatID},
+			MessageID: 101,
+		},
+		Data: "finish_discussion:123",
+	}
+
+	response := handler.HandleCallback(callback)
+
+	assert.NotNil(t, response)
+	assert.True(t, response.IsOwner)
+	assert.NotNil(t, response.CallbackConfig)
+	assert.NotNil(t, response.ResponseMessage)
+	assert.Contains(t, response.ResponseMessage.Text, "Обсуждение завершено")
+	mockDB.AssertExpectations(t)
+}
+
+func TestCallbackHandler_HandleCallback_KeepDiscussion(t *testing.T) {
+	mockDB := new(MockDBManager)
+	mockTodoist := new(MockTodoistClient)
+
+	sessionID := 123
+	chatID := int64(789)
+	userID := int64(456)
+
+	mockDB.On("IsSessionOwner", mock.Anything, sessionID, userID).Return(true, nil)
+
+	handler := NewCallbackHandler(mockTodoist, mockDB)
+
+	callback := &tgbotapi.CallbackQuery{
+		ID:   "test_callback_id",
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			Chat:      &tgbotapi.Chat{ID: chatID},
+			MessageID: 101,
+		},
+		Data: "keep_discussion:123",
+	}
+
+	response := handler.HandleCallback(callback)
+
+	assert.NotNil(t, response)
+	assert.True(t, response.IsOwner)
+	assert.NotNil(t, response.CallbackConfig)
+	assert.NotNil(t, response.ResponseMessage)
+	assert.Contains(t, response.ResponseMessage.Text, "Обсуждение продолжается")
+	mockDB.AssertNotCalled(t, "CloseSession", mock.Anything, chatID)
+	mockDB.AssertExpectations(t)
+}
+
+func TestCallbackHandler_HandleCallback_SelectProject(t *testing.T) {
+	mockDB := new(MockDBManager)
+	mockTodoist := new(MockTodoistClient)
+
+	chatID := int64(789)
+
+	mockDB.On("SetTodoistProjectID", mock.Anything, chatID, "project123").Return(nil)
+
+	handler := NewCallbackHandler(mockTodoist, mockDB)
+
+	callback := &tgbotapi.CallbackQuery{
+		ID:   "test_callback_id",
+		From: &tgbotapi.User{ID: 456},
+		Message: &tgbotapi.Message{
+			Chat:      &tgbotapi.Chat{ID: chatID},
+			MessageID: 101,
+		},
+		Data: "select_project:project123",
+	}
+
+	response := handler.HandleCallback(callback)
+
+	assert.NotNil(t, response)
+	assert.True(t, response.IsOwner)
+	assert.NotNil(t, response.CallbackConfig)
+	assert.NotNil(t, response.ResponseMessage)
+	assert.Contains(t, response.ResponseMessage.Text, "Проект выбран")
+	mockDB.AssertExpectations(t)
+}
+
 // Tests that malformed callback data without proper separator is handled gracefully
 func TestCallbackHandler_HandleCallback_InvalidCallbackData(t *testing.T) {
 	mockDB := new(MockDBManager)
@@ -101,7 +250,7 @@ func TestCallbackHandler_HandleCallback_InvalidCallbackData(t *testing.T) {
 	handler := NewCallbackHandler(mockTodoist, mockDB)
 
 	callback := &tgbotapi.CallbackQuery{
-		ID: "test_callback_id",
+		ID:   "test_callback_id",
 		From: &tgbotapi.User{ID: 456},
 		Data: "invalid_format",
 	}
@@ -125,7 +274,7 @@ func TestCallbackHandler_HandleCallback_UnknownCallbackType(t *testing.T) {
 	handler := NewCallbackHandler(mockTodoist, mockDB)
 
 	callback := &tgbotapi.CallbackQuery{
-		ID: "test_callback_id",
+		ID:   "test_callback_id",
 		From: &tgbotapi.User{ID: 456},
 		Data: "unknown_action:123",
 	}
@@ -148,10 +297,10 @@ func TestCallbackHandler_HandleCallback_InvalidSessionID(t *testing.T) {
 	handler := NewCallbackHandler(mockTodoist, mockDB)
 
 	callback := &tgbotapi.CallbackQuery{
-		ID: "test_callback_id",
+		ID:   "test_callback_id",
 		From: &tgbotapi.User{ID: 456},
 		Message: &tgbotapi.Message{
-			Chat: &tgbotapi.Chat{ID: 789},
+			Chat:      &tgbotapi.Chat{ID: 789},
 			MessageID: 101,
 		},
 		Data: "confirm_task:abc",

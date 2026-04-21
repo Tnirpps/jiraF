@@ -66,6 +66,7 @@ func TestTaskJSON(t *testing.T) {
 		DueDate:        "2026-03-20",
 		Priority:       3,
 		PriorityText:   "High",
+		AssigneeNote:   "@qa-team",
 		Labels:         []string{"frontend", "bug"},
 		TaskType:       "bug",
 		MissingDetails: []string{"шаги воспроизведения", "ожидаемое поведение"},
@@ -87,6 +88,9 @@ func TestTaskJSON(t *testing.T) {
 	if decoded.Priority != task.Priority {
 		t.Errorf("Priority mismatch: got %v, want %v", decoded.Priority, task.Priority)
 	}
+	if decoded.AssigneeNote != task.AssigneeNote {
+		t.Errorf("AssigneeNote mismatch: got %v, want %v", decoded.AssigneeNote, task.AssigneeNote)
+	}
 	if len(decoded.Labels) != len(task.Labels) {
 		t.Errorf("Labels length mismatch: got %v, want %v", len(decoded.Labels), len(task.Labels))
 	}
@@ -95,6 +99,25 @@ func TestTaskJSON(t *testing.T) {
 	}
 	if len(decoded.MissingDetails) != len(task.MissingDetails) {
 		t.Errorf("MissingDetails length mismatch: got %v, want %v", len(decoded.MissingDetails), len(task.MissingDetails))
+	}
+}
+
+func TestTaskJSON_AllowsStringPriority(t *testing.T) {
+	raw := []byte(`{
+		"title": "Тестовая задача",
+		"description": "Описание",
+		"due_date": "2026-05-01",
+		"priority": "3",
+		"task_type": "task"
+	}`)
+
+	var decoded AnalyzedTask
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if decoded.Priority != 3 {
+		t.Fatalf("Priority mismatch: got %v, want %v", decoded.Priority, 3)
 	}
 }
 
@@ -248,7 +271,7 @@ func TestTaskCreationFlow(t *testing.T) {
 		"description": "Разработка лендинга для проекта",
 		"due_date": "2026-03-13",
 		"priority": 4,
-		"priority_text": "Срочно",
+		"assignee_note": "@alex",
 		"labels": ["frontend", "urgent", "project"],
 		"task_type": "epic",
 		"missing_details": ["риски", "зависимости"]
@@ -269,9 +292,43 @@ func TestTaskCreationFlow(t *testing.T) {
 	if task.TaskType == "" {
 		t.Error("Expected task type to be present")
 	}
+	if task.AssigneeNote != "@alex" {
+		t.Errorf("expected assignee note to be parsed, got %q", task.AssigneeNote)
+	}
 
 	t.Logf("Task created successfully: %s (Priority: %d, Due: %s)",
 		task.Title, task.Priority, task.DueDate)
+}
+
+func TestValidateAndCompleteTask_FillsDerivedAndOptionalFields(t *testing.T) {
+	client := &AIClient{}
+	task := &AnalyzedTask{
+		Title:       "Починить авторизацию",
+		Description: "Нужно починить логин через OAuth",
+		Priority:    10,
+		TaskType:    "Эпик",
+	}
+
+	result := client.validateAndCompleteTask(task)
+
+	if result.Priority != 1 {
+		t.Fatalf("expected invalid priority to fall back to 1, got %d", result.Priority)
+	}
+	if result.PriorityText != "Низкий" {
+		t.Fatalf("expected derived priority text, got %q", result.PriorityText)
+	}
+	if result.TaskType != "epic" {
+		t.Fatalf("expected normalized task type epic, got %q", result.TaskType)
+	}
+	if result.AssigneeNote != "" {
+		t.Fatalf("expected empty assignee note by default, got %q", result.AssigneeNote)
+	}
+	if result.Labels == nil || len(result.Labels) != 0 {
+		t.Fatalf("expected empty labels slice, got %#v", result.Labels)
+	}
+	if result.MissingDetails == nil || len(result.MissingDetails) != 0 {
+		t.Fatalf("expected empty missing details slice, got %#v", result.MissingDetails)
+	}
 }
 
 func TestLoadTaskTemplates(t *testing.T) {

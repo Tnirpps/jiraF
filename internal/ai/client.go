@@ -23,10 +23,81 @@ type AnalyzedTask struct {
 	Description    string   `json:"description"`
 	DueDate        string   `json:"due_date"`
 	Priority       int      `json:"priority"`
-	PriorityText   string   `json:"priority_text"`
+	PriorityText   string   `json:"priority_text,omitempty"`
+	AssigneeNote   string   `json:"assignee_note,omitempty"`
 	Labels         []string `json:"labels,omitempty"`
 	TaskType       string   `json:"task_type,omitempty"`
 	MissingDetails []string `json:"missing_details,omitempty"`
+}
+
+func (t *AnalyzedTask) UnmarshalJSON(data []byte) error {
+	type analyzedTaskAlias struct {
+		Title          string   `json:"title"`
+		Description    string   `json:"description"`
+		DueDate        string   `json:"due_date"`
+		Priority       any      `json:"priority"`
+		PriorityText   string   `json:"priority_text,omitempty"`
+		AssigneeNote   string   `json:"assignee_note,omitempty"`
+		Labels         []string `json:"labels,omitempty"`
+		TaskType       string   `json:"task_type,omitempty"`
+		MissingDetails []string `json:"missing_details,omitempty"`
+	}
+
+	var raw analyzedTaskAlias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	parsedPriority, err := parsePriorityValue(raw.Priority)
+	if err != nil {
+		return fmt.Errorf("parse priority: %w", err)
+	}
+
+	t.Title = raw.Title
+	t.Description = raw.Description
+	t.DueDate = raw.DueDate
+	t.Priority = parsedPriority
+	t.PriorityText = raw.PriorityText
+	t.AssigneeNote = raw.AssigneeNote
+	t.Labels = raw.Labels
+	t.TaskType = raw.TaskType
+	t.MissingDetails = raw.MissingDetails
+
+	return nil
+}
+
+func parsePriorityValue(value any) (int, error) {
+	switch v := value.(type) {
+	case nil:
+		return 0, nil
+	case float64:
+		return int(v), nil
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return 0, nil
+		}
+
+		switch trimmed {
+		case "1", "2", "3", "4":
+			return int(trimmed[0] - '0'), nil
+		}
+
+		switch strings.ToLower(trimmed) {
+		case "low", "низкий", "normal", "обычный":
+			return 1, nil
+		case "medium", "mid", "средний":
+			return 2, nil
+		case "high", "высокий":
+			return 3, nil
+		case "urgent", "critical", "срочный", "критичный":
+			return 4, nil
+		default:
+			return 0, fmt.Errorf("unsupported priority value %q", v)
+		}
+	default:
+		return 0, fmt.Errorf("unsupported priority type %T", value)
+	}
 }
 
 // AIClient клиент для работы с OpenRouter AI

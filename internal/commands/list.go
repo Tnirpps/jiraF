@@ -170,7 +170,7 @@ func (c *ListCommand) listTasks(message *tgbotapi.Message, projectID string) *tg
 	sb.WriteString("\n*Полезные команды:*\n")
 	sb.WriteString("/create_task — создать задачу из обсуждения\n")
 	sb.WriteString("/start_discussion — начать обсуждение\n")
-	sb.WriteString("/cancel — отменить текущее обсуждение\n")
+	sb.WriteString("/cancel — завершить обсуждение без задачи\n")
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, sb.String())
 	msg.ParseMode = "Markdown"

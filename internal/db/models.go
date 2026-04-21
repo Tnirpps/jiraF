@@ -37,21 +37,31 @@ type Message struct {
 }
 
 type DraftTask struct {
-	SessionID    int            `db:"session_id"`
-	Title        sql.NullString `db:"title"`
-	Description  sql.NullString `db:"description"`
-	DueISO       sql.NullString `db:"due_iso"`
-	Priority     sql.NullInt32  `db:"priority"`
-	AssigneeNote sql.NullString `db:"assignee_note"`
-	UpdatedAt    time.Time      `db:"updated_at"`
+	SessionID      int            `db:"session_id"`
+	Title          sql.NullString `db:"title"`
+	Description    sql.NullString `db:"description"`
+	DueISO         sql.NullString `db:"due_iso"`
+	Priority       sql.NullInt32  `db:"priority"`
+	TaskType       sql.NullString `db:"task_type"`
+	Labels         StringSlice    `db:"labels"`
+	MissingDetails StringSlice    `db:"missing_details"`
+	AssigneeNote   sql.NullString `db:"assignee_note"`
+	UpdatedAt      time.Time      `db:"updated_at"`
 }
 
 type CreatedTask struct {
-	ID            int       `db:"id"`
-	SessionID     int       `db:"session_id"`
-	TodoistTaskID string    `db:"todoist_task_id"`
-	URL           string    `db:"url"`
-	CreatedAt     time.Time `db:"created_at"`
+	ID            int            `db:"id"`
+	SessionID     int            `db:"session_id"`
+	TodoistTaskID string         `db:"todoist_task_id"`
+	URL           string         `db:"url"`
+	Title         sql.NullString `db:"title"`
+	Description   sql.NullString `db:"description"`
+	DueISO        sql.NullString `db:"due_iso"`
+	Priority      sql.NullInt32  `db:"priority"`
+	TaskType      sql.NullString `db:"task_type"`
+	Labels        StringSlice    `db:"labels"`
+	AssigneeNote  sql.NullString `db:"assignee_note"`
+	CreatedAt     time.Time      `db:"created_at"`
 }
 
 type AuditEdit struct {

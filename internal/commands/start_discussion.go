@@ -7,15 +7,18 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/user/telegram-bot/internal/db"
+	"github.com/user/telegram-bot/internal/todoist"
 )
 
 type StartDiscussionCommand struct {
-	dbManager DBManager
+	dbManager     DBManager
+	todoistClient todoist.Client
 }
 
-func NewStartDiscussionCommand(dbManager DBManager) *StartDiscussionCommand {
+func NewStartDiscussionCommand(dbManager DBManager, todoistClient todoist.Client) *StartDiscussionCommand {
 	return &StartDiscussionCommand{
-		dbManager: dbManager,
+		dbManager:     dbManager,
+		todoistClient: todoistClient,
 	}
 }
 
@@ -33,8 +36,7 @@ func (c *StartDiscussionCommand) Execute(message *tgbotapi.Message) *tgbotapi.Me
 	projectID, err := c.dbManager.GetTodoistProjectID(ctx, message.Chat.ID)
 	if err != nil {
 		if err == db.ErrProjectIDNotSet {
-			msg := tgbotapi.NewMessage(message.Chat.ID, "Пожалуйста, сначала укажите идентификатор проекта, используя команду /set_project <id>")
-			return &msg
+			return buildProjectSelectionMessage(ctx, c.todoistClient, message.Chat.ID, "Сначала выберите проект Todoist:")
 		}
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error getting project ID: %v", err))
 		return &msg
@@ -52,7 +54,7 @@ func (c *StartDiscussionCommand) Execute(message *tgbotapi.Message) *tgbotapi.Me
 
 	log.Printf("Start for id: %s session: %d\n", projectID, sessionID)
 
-	responseText := "Началось новое обсуждение задачи!\nВсе сообщения будут сохраняться до тех пор, пока вы не создадите задачу (/create_task) или не отмените процесс (/cancel)"
+	responseText := "Обсуждение началось.\nСообщения будут сохраняться, пока вы не создадите задачу (/create_task) или не завершите обсуждение (/cancel)."
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, responseText)
 	return &msg

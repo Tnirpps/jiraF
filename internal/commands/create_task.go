@@ -10,6 +10,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/user/telegram-bot/internal/ai"
+	"github.com/user/telegram-bot/internal/db"
 	"github.com/user/telegram-bot/internal/todoist"
 )
 
@@ -42,6 +43,15 @@ func (c *CreateTaskCommand) Description() string {
 // Execute handles the command execution
 func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig {
 	ctx := context.Background()
+
+	if _, err := c.dbManager.GetTodoistProjectID(ctx, message.Chat.ID); err != nil {
+		if err == db.ErrProjectIDNotSet {
+			return buildProjectSelectionMessage(ctx, c.todoistClient, message.Chat.ID, "Сначала выберите проект Todoist:")
+		}
+		log.Printf("Error getting project: %v", err)
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error getting project: %v", err))
+		return &msg
+	}
 
 	// Check if there's an active session
 	hasActive, err := c.dbManager.HasActiveSession(ctx, message.Chat.ID)
@@ -84,14 +94,6 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 		return &msg
 	}
 
-	// Get project ID for this chat (will be used in the confirm stage)
-	_, err = c.dbManager.GetTodoistProjectID(ctx, message.Chat.ID)
-	if err != nil {
-		log.Printf("Error getting project: %v", err)
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error getting project: %v", err))
-		return &msg
-	}
-
 	// Extract text from messages
 	var messageTexts []string
 	for _, msg := range messages {
@@ -122,8 +124,11 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 	log.Printf("AI analysis successful: Title: %s, Priority: %d, Due: %s",
 		analyzedTask.Title, analyzedTask.Priority, analyzedTask.DueDate)
 
-	// Extract assignee from messages
-	assigneeNote := c.extractAssignee(strings.Join(messageTexts, " "))
+	// Keep assignee as part of the canonical task model; fall back to simple extraction.
+	assigneeNote := analyzedTask.AssigneeNote
+	if assigneeNote == "" {
+		assigneeNote = c.extractAssignee(strings.Join(messageTexts, " "))
+	}
 
 	// Format due date in ISO
 	dueISO := c.convertToDueISO(analyzedTask.DueDate)
@@ -136,6 +141,9 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 		analyzedTask.Description,
 		dueISO,
 		analyzedTask.Priority,
+		analyzedTask.TaskType,
+		analyzedTask.Labels,
+		analyzedTask.MissingDetails,
 		assigneeNote,
 	)
 	if err != nil {
@@ -152,7 +160,7 @@ func CreateInlineKeyboard(sessionID int) tgbotapi.InlineKeyboardMarkup {
 	sessionIDStr := fmt.Sprintf("%d", sessionID)
 	confirmButton := tgbotapi.NewInlineKeyboardButtonData("✅ Подтвердить", CallbackConfirm+CallbackDataSeparator+sessionIDStr)
 	editButton := tgbotapi.NewInlineKeyboardButtonData("✏️ Редактировать", CallbackEdit+CallbackDataSeparator+sessionIDStr)
-	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", CallbackCancel+CallbackDataSeparator+sessionIDStr)
+	cancelButton := tgbotapi.NewInlineKeyboardButtonData("❌ Отменить создание", CallbackCancel+CallbackDataSeparator+sessionIDStr)
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(confirmButton, editButton, cancelButton),
@@ -169,7 +177,8 @@ func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, ta
 	responseText := fmt.Sprintf(
 		`✅ Черновик задачи готов.
 *Название:* %s
-*Описание:* %s`,
+*Описание:* %s
+`,
 		task.Title, task.Description,
 	)
 
@@ -180,9 +189,13 @@ func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, ta
 	responseText += fmt.Sprintf("*Приоритет:* %s\n", task.PriorityText)
 	responseText += fmt.Sprintf("*Тип задачи:* %s\n", formatTaskType(task.TaskType))
 
-	// if assigneeNote != "" {
-	// 	responseText += fmt.Sprintf("*Assigned to:* %s\n\n", assigneeNote)
-	// }
+	if assigneeNote != "" {
+		responseText += fmt.Sprintf("*Исполнитель:* %s\n", assigneeNote)
+	}
+
+	if len(task.Labels) > 0 {
+		responseText += fmt.Sprintf("*Метки:* %s\n", strings.Join(task.Labels, ", "))
+	}
 
 	if len(task.MissingDetails) > 0 {
 		responseText += fmt.Sprintf(

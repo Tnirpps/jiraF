@@ -27,6 +27,10 @@ type Bot struct {
 	// Track edit sessions
 	editSessions map[int64]string // map[botMessageID]sessionID
 	editMutex    sync.RWMutex
+
+	// Track the last bot message in a chat that requires a user action.
+	pendingActionMessages map[int64]int
+	pendingActionMutex    sync.RWMutex
 }
 
 func New(telegramToken string, dbManager commands.DBManager, aiClient ai.Client, todoistClient todoist.Client) (*Bot, error) {
@@ -39,7 +43,7 @@ func New(telegramToken string, dbManager commands.DBManager, aiClient ai.Client,
 	registry := commands.NewRegistry()
 
 	// Create and register commands
-	startCmd := commands.NewStartCommand(registry)
+	startCmd := commands.NewStartCommand(registry, todoistClient, dbManager)
 	registry.Register(startCmd)
 
 	helpCmd := commands.NewHelpCommand(registry)
@@ -53,7 +57,7 @@ func New(telegramToken string, dbManager commands.DBManager, aiClient ai.Client,
 	setProjectCmd := commands.NewSetProjectCommand(todoistClient, dbManager)
 	registry.Register(setProjectCmd)
 
-	startDiscussionCmd := commands.NewStartDiscussionCommand(dbManager)
+	startDiscussionCmd := commands.NewStartDiscussionCommand(dbManager, todoistClient)
 	registry.Register(startDiscussionCmd)
 
 	cancelCmd := commands.NewCancelCommand(dbManager)
@@ -67,14 +71,15 @@ func New(telegramToken string, dbManager commands.DBManager, aiClient ai.Client,
 	callbackHandler := commands.NewCallbackHandler(todoistClient, dbManager)
 
 	return &Bot{
-		api:             api,
-		commandRegistry: registry,
-		dbManager:       dbManager,
-		callbackHandler: callbackHandler,
-		aiClient:        aiClient,
-		todoistClient:   todoistClient,
-		stopCh:          make(chan struct{}),
-		editSessions:    make(map[int64]string),
+		api:                   api,
+		commandRegistry:       registry,
+		dbManager:             dbManager,
+		callbackHandler:       callbackHandler,
+		aiClient:              aiClient,
+		todoistClient:         todoistClient,
+		stopCh:                make(chan struct{}),
+		editSessions:          make(map[int64]string),
+		pendingActionMessages: make(map[int64]int),
 	}, nil
 }
 
@@ -154,35 +159,21 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 
 	// Only delete buttons if the user is the session owner
 	if callbackResp.IsOwner {
-		// Delete buttons from the original message
-		editMsg := tgbotapi.NewEditMessageText(callback.Message.Chat.ID, callback.Message.MessageID, callback.Message.Text)
-		editMsg.ParseMode = "Markdown"
-		// Clear buttons
-		editMsg.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{
-			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
-		}
+		b.clearPendingActionIfMatches(callback.Message.Chat.ID, callback.Message.MessageID)
 
-		// Send edited message without buttons
-		if _, err := b.api.Send(editMsg); err != nil {
-			log.Println("Error editing message:", err)
+		// Clear buttons without touching the already rendered message text/formatting.
+		editMarkup := tgbotapi.NewEditMessageReplyMarkup(callback.Message.Chat.ID, callback.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
+			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
+		})
+
+		if _, err := b.api.Request(editMarkup); err != nil {
+			log.Println("Error clearing reply markup:", err)
 			return
 		}
 
 		// Check if we need to send the edit message
 		if callbackResp.ResponseMessage != nil {
-			// Send the message from the callback
-			sent, err := b.api.Send(callbackResp.ResponseMessage)
-			if err != nil {
-				log.Printf("Error sending callback response message: %v", err)
-			} else if callbackResp.WaitingForReply && callbackResp.SessionID != "" {
-				// If this is an edit message waiting for reply, track it
-				b.editMutex.Lock()
-				b.editSessions[int64(sent.MessageID)] = callbackResp.SessionID
-				b.editMutex.Unlock()
-
-				log.Printf("Added edit session for message ID %d, session %s",
-					sent.MessageID, callbackResp.SessionID)
-			}
+			b.sendResponseWithOptions(callbackResp.ResponseMessage, callbackResp.WaitingForReply, callbackResp.SessionID)
 		} else if callbackType != commands.CallbackEdit {
 			// Send a confirmation message for non-edit callbacks
 			var text string
@@ -270,12 +261,12 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 
 func (b *Bot) handleButtonText(message *tgbotapi.Message) bool {
 	buttonCommands := map[string]string{
-		"📁 Выбрать проект":    "set_project",
-		"💬 Начать обсуждение": "start_discussion",
-		"✅ Создать задачу":    "create_task",
-		"❌ Отменить":          "cancel",
-		"📋 Список задач":      "list",
-		"❓ Помощь":            "help",
+		"📁 Выбрать проект":       "set_project",
+		"💬 Начать обсуждение":    "start_discussion",
+		"✅ Создать задачу":       "create_task",
+		"🛑 Завершить обсуждение": "cancel",
+		"📋 Список задач":         "list",
+		"❓ Помощь":               "help",
 	}
 
 	commandName, exists := buttonCommands[message.Text]
@@ -299,14 +290,38 @@ func (b *Bot) handleButtonText(message *tgbotapi.Message) bool {
 
 // sendResponse sends a message with debugging logs
 func (b *Bot) sendResponse(msgConfig *tgbotapi.MessageConfig) {
+	b.sendResponseWithOptions(msgConfig, false, "")
+}
+
+func (b *Bot) sendResponseWithOptions(msgConfig *tgbotapi.MessageConfig, waitingForReply bool, sessionID string) {
 	if msgConfig == nil {
 		return
 	}
 
-	_, err := b.api.Send(msgConfig)
+	requiresAction := waitingForReply || hasInlineKeyboard(msgConfig)
+	if requiresAction {
+		b.deletePendingActionMessage(msgConfig.ChatID)
+	}
+
+	sent, err := b.api.Send(msgConfig)
 	if err != nil {
 		log.Printf("Error sending message: %v", err)
 		log.Printf("Message text was: %s", msgConfig.Text)
+		return
+	}
+
+	if waitingForReply && sessionID != "" {
+		b.editMutex.Lock()
+		b.editSessions[int64(sent.MessageID)] = sessionID
+		b.editMutex.Unlock()
+
+		log.Printf("Added edit session for message ID %d, session %s", sent.MessageID, sessionID)
+	}
+
+	if requiresAction {
+		b.pendingActionMutex.Lock()
+		b.pendingActionMessages[msgConfig.ChatID] = sent.MessageID
+		b.pendingActionMutex.Unlock()
 	}
 }
 
@@ -335,11 +350,15 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		return
 	}
 	aiTask := &ai.AnalyzedTask{
-		Title:        draftTask.Title.String,
-		Description:  draftTask.Description.String,
-		DueDate:      draftTask.DueISO.String,
-		Priority:     int(draftTask.Priority.Int32),
-		PriorityText: "",
+		Title:          draftTask.Title.String,
+		Description:    draftTask.Description.String,
+		DueDate:        draftTask.DueISO.String,
+		Priority:       int(draftTask.Priority.Int32),
+		PriorityText:   "",
+		AssigneeNote:   draftTask.AssigneeNote.String,
+		Labels:         []string(draftTask.Labels),
+		TaskType:       draftTask.TaskType.String,
+		MissingDetails: []string(draftTask.MissingDetails),
 	}
 
 	editedTask, err := b.aiClient.EditTask(ctx, aiTask, message.Text)
@@ -349,7 +368,18 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		return
 	}
 
-	err = b.dbManager.SaveDraftTask(ctx, sessionIDInt, editedTask.Title, editedTask.Description, editedTask.DueDate, editedTask.Priority, "")
+	err = b.dbManager.SaveDraftTask(
+		ctx,
+		sessionIDInt,
+		editedTask.Title,
+		editedTask.Description,
+		editedTask.DueDate,
+		editedTask.Priority,
+		editedTask.TaskType,
+		editedTask.Labels,
+		editedTask.MissingDetails,
+		editedTask.AssigneeNote,
+	)
 	if err != nil {
 		log.Printf("Error saving edited task: %v", err)
 		b.sendMessage(message.Chat.ID, "❌ Error saving task")
@@ -363,12 +393,14 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		"*Описание:* %s\n"+
 		"*Срок выполнения:* %s\n"+
 		"*Приоритет:* %s\n"+
+		"*Исполнитель:* %s\n"+
 		"*Метки:* %s\n"+
 		"*Тип задачи:* %s\n",
 		editedTask.Title,
 		editedTask.Description,
 		commands.FormatDueDateForDisplay(editedTask.DueDate),
 		editedTask.PriorityText,
+		editedTask.AssigneeNote,
 		strings.Join(editedTask.Labels, ", "),
 		commands.FormatTaskTypeForBot(editedTask.TaskType))
 
@@ -386,4 +418,40 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 	msg.ReplyMarkup = commands.CreateInlineKeyboard(sessionIDInt)
 
 	b.sendResponse(&msg)
+}
+
+func hasInlineKeyboard(msgConfig *tgbotapi.MessageConfig) bool {
+	markup, ok := msgConfig.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup)
+	return ok && len(markup.InlineKeyboard) > 0
+}
+
+func (b *Bot) clearPendingActionIfMatches(chatID int64, messageID int) {
+	b.pendingActionMutex.Lock()
+	defer b.pendingActionMutex.Unlock()
+
+	if currentID, ok := b.pendingActionMessages[chatID]; ok && currentID == messageID {
+		delete(b.pendingActionMessages, chatID)
+	}
+}
+
+func (b *Bot) deletePendingActionMessage(chatID int64) {
+	b.pendingActionMutex.Lock()
+	messageID, ok := b.pendingActionMessages[chatID]
+	if ok {
+		delete(b.pendingActionMessages, chatID)
+	}
+	b.pendingActionMutex.Unlock()
+
+	if !ok {
+		return
+	}
+
+	b.editMutex.Lock()
+	delete(b.editSessions, int64(messageID))
+	b.editMutex.Unlock()
+
+	deleteMsg := tgbotapi.NewDeleteMessage(chatID, messageID)
+	if _, err := b.api.Request(deleteMsg); err != nil {
+		log.Printf("Error deleting previous action message %d in chat %d: %v", messageID, chatID, err)
+	}
 }

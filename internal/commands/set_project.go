@@ -3,8 +3,6 @@ package commands
 import (
 	"context"
 	"fmt"
-	"regexp"
-	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -30,52 +28,40 @@ func (c *SetProjectCommand) Name() string {
 }
 
 func (c *SetProjectCommand) Description() string {
-	return "Выбрать проект Todoist для этого чата (использование: /set_project <id>)"
+	return "Выбрать или сменить проект Todoist"
 }
 
 func (c *SetProjectCommand) Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig {
-	ctx := context.Background()
-	args := strings.TrimSpace(message.CommandArguments())
+	return buildProjectSelectionMessage(context.Background(), c.todoistClient, message.Chat.ID, "Выберите проект Todoist:")
+}
 
-	if args == "" {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Пожалуйста укажите ID. Использование: /set_project <id>")
-		return &msg
-	}
-
-	projectID := args
-	urlRegex := regexp.MustCompile(`todoist.com/app/projects/(\d+)`)
-	if matches := urlRegex.FindStringSubmatch(args); len(matches) > 1 {
-		projectID = matches[1]
-	}
-
+func buildProjectSelectionMessage(ctx context.Context, todoistClient todoist.Client, chatID int64, intro string) *tgbotapi.MessageConfig {
 	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
-	projects, err := c.todoistClient.GetProjects(ctx)
+	projects, err := todoistClient.GetProjects(ctx)
 	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error fetching Todoist projects: %v", err))
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Не удалось загрузить проекты Todoist: %v", err))
 		return &msg
 	}
 
-	validProject := false
-	for _, project := range projects {
-		if project.ID == projectID {
-			validProject = true
-			break
-		}
-	}
-
-	if !validProject {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Неверный ID, такого проекта не существует. Пожалуйста укажите верный ID.")
+	if len(projects) == 0 {
+		msg := tgbotapi.NewMessage(chatID, "В Todoist не найдено ни одного проекта.")
 		return &msg
 	}
 
-	err = c.dbManager.SetTodoistProjectID(ctx, message.Chat.ID, projectID)
-	if err != nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error saving project ID: %v", err))
-		return &msg
-	}
-
-	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Для этого чата установлен проект Todoist: %s", projectID))
+	msg := tgbotapi.NewMessage(chatID, intro)
+	msg.ReplyMarkup = buildProjectSelectionKeyboard(projects)
 	return &msg
+}
+
+func buildProjectSelectionKeyboard(projects []todoist.Project) tgbotapi.InlineKeyboardMarkup {
+	rows := make([][]tgbotapi.InlineKeyboardButton, 0, len(projects))
+
+	for _, project := range projects {
+		button := tgbotapi.NewInlineKeyboardButtonData(project.Name, CallbackSelectProject+CallbackDataSeparator+project.ID)
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(button))
+	}
+
+	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }

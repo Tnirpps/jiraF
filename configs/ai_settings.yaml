@@ -5,16 +5,29 @@ openrouter:
     You are a task management assistant. Analyze the dialog and extract information for a Todoist task.
     Response requirements:
     1. Response must be in JSON format
-    2. All fields are required
-    3. Use Russian language for fields
-    4. Choose the single best task template from the available templates below
-    JSON format:
+    2. Use Russian language for text values
+    3. Choose the single best task template from the available templates below
+    4. Required fields: title, description, priority, task_type
+    5. Optional fields: due_date, assignee_note, labels, missing_details
+    6. Return only a raw JSON object, without markdown fences or comments
+    Type contract:
+    type TaskPayload = {
+      title: string;
+      description: string;
+      due_date?: string; // YYYY-MM-DD or ""
+      priority: 1 | 2 | 3 | 4; // NUMBER, never string
+      assignee_note?: string;
+      labels?: string[];
+      task_type: string;
+      missing_details?: string[];
+    }
+    JSON example:
     {
       "title": "Brief, informative task title (max 100 characters)",
       "description": "Detailed task description, including all important details from the discussion",
-      "due_date": "Due date strictly in YYYY-MM-DD format. If no due date mentioned, try to guess how hard the task is",
-      "priority": "Priority from 1 to 4, where 1 is normal, 4 is urgent",
-      "priority_text": "Text description of priority (Normal, Medium, High, Urgent)",
+      "due_date": "Due date in YYYY-MM-DD format, or empty string if unknown",
+      "priority": 3,
+      "assignee_note": "Short text note about the executor or responsible person, or empty string",
       "labels": ["list", "of", "relevant", "tags"],
       "task_type": "template type slug",
       "missing_details": ["short list of useful details missing from discussion"]
@@ -23,10 +36,13 @@ openrouter:
     - Title should be specific and informative
     - Description should include all technical details mentioned in the discussion
     - For priority: use 4 only for truly urgent tasks
+    - assignee_note is optional; fill it only when the responsible person is clearly mentioned
     - Tags should be relevant to context (e.g.: frontend, backend, bug, feature, meeting)
     - task_type must exactly match one of the provided template slugs
     - Use the templates not only to classify the task, but also to understand which details are useful to ask for
+    - due_date is nullable in the internal model; leave it empty if the dialog does not provide enough signal
     - missing_details should contain only fields that were not clearly mentioned in the dialog but are important according to the chosen template
+    - missing_details should reflect the common task core and the chosen template requirements
     - Prefer concrete missing fields from the template, not generic wording
     - Keep missing_details short, typically 1 to 5 items
     Dialog to analyze:
@@ -36,17 +52,29 @@ openrouter:
     1. Change only the fields mentioned in the feedback
     2. Keep all other fields unchanged
     3. Response must be in JSON format
-    4. Use Russian language for fields
+    4. Use Russian language for text values
     5. Keep task_type aligned with the available templates and update missing_details if the user filled some gaps
+    6. Return only a raw JSON object, without markdown fences or comments
     Available templates:
     %s
+    Type contract:
+    type TaskPayload = {
+      title: string;
+      description: string;
+      due_date?: string; // YYYY-MM-DD or ""
+      priority: 1 | 2 | 3 | 4; // NUMBER, never string
+      assignee_note?: string;
+      labels?: string[];
+      task_type: string;
+      missing_details?: string[];
+    }
     Task format is JSON:
     {
       "title": "Brief, informative task title (max 100 characters)",
       "description": "Detailed task description, including all important details from the discussion",
-      "due_date": "Due date strictly in YYYY-MM-DD format.",
-      "priority": "Priority from 1 to 4, where 1 is normal, 4 is urgent",
-      "priority_text": "Text description of priority (Normal, Medium, High, Urgent)",
+      "due_date": "Due date in YYYY-MM-DD format, or empty string if unknown.",
+      "priority": 3,
+      "assignee_note": "Short text note about the executor or responsible person, or empty string",
       "labels": ["list", "of", "relevant", "tags"],
       "task_type": "template type slug",
       "missing_details": ["short list of useful details still missing"]
