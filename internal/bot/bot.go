@@ -2,7 +2,6 @@ package bot
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/commands"
+	"github.com/user/telegram-bot/internal/tasklinks"
 	"github.com/user/telegram-bot/internal/todoist"
 )
 
@@ -229,6 +229,7 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 		if err != nil {
 			log.Printf("Error checking active session: %v", err)
 		} else if hasActive {
+			links := tasklinks.ExtractFromTelegramMessage(message)
 			err := b.dbManager.SaveMessage(
 				ctx,
 				message.Chat.ID,
@@ -236,6 +237,7 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 				int64(message.From.ID),
 				message.From.UserName,
 				message.Text,
+				links,
 			)
 			if err != nil {
 				log.Printf("Error saving message: %v", err)
@@ -298,6 +300,10 @@ func (b *Bot) sendResponseWithOptions(msgConfig *tgbotapi.MessageConfig, waiting
 		return
 	}
 
+	if containsHTTPLink(msgConfig.Text) {
+		msgConfig.DisableWebPagePreview = true
+	}
+
 	requiresAction := waitingForReply || hasInlineKeyboard(msgConfig)
 	if requiresAction {
 		b.deletePendingActionMessage(msgConfig.ChatID)
@@ -331,6 +337,10 @@ func (b *Bot) sendMessage(chatID int64, text string) {
 	b.sendResponse(&msg)
 }
 
+func containsHTTPLink(text string) bool {
+	return strings.Contains(text, "http://") || strings.Contains(text, "https://")
+}
+
 // handleEditReply processes a user's reply to an edit request message
 func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 	log.Printf("Processing edit request for session %s: %s", sessionID, message.Text)
@@ -359,6 +369,7 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		Labels:         []string(draftTask.Labels),
 		TaskType:       draftTask.TaskType.String,
 		MissingDetails: []string(draftTask.MissingDetails),
+		SelectedLinks:  []tasklinks.TaskLink(draftTask.SelectedLinks),
 	}
 
 	editedTask, err := b.aiClient.EditTask(ctx, aiTask, message.Text)
@@ -378,6 +389,7 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		editedTask.TaskType,
 		editedTask.Labels,
 		editedTask.MissingDetails,
+		editedTask.SelectedLinks,
 		editedTask.AssigneeNote,
 	)
 	if err != nil {
@@ -386,35 +398,18 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		return
 	}
 
-	// Send back a confirmation message with the changes
-	responseText := fmt.Sprintf("✅ Задача обновлена!\n\n"+
-		"Изменения сохранены:\n"+
-		"*Название:* %s\n"+
-		"*Описание:* %s\n"+
-		"*Срок выполнения:* %s\n"+
-		"*Приоритет:* %s\n"+
-		"*Исполнитель:* %s\n"+
-		"*Метки:* %s\n"+
-		"*Тип задачи:* %s\n",
-		editedTask.Title,
-		editedTask.Description,
-		commands.FormatDueDateForDisplay(editedTask.DueDate),
-		editedTask.PriorityText,
+	responseText := "✅ Задача обновлена!\n\nИзменения сохранены:\n"
+	responseText += commands.FormatTaskPreview(
+		editedTask,
+		editedTask.DueDate,
 		editedTask.AssigneeNote,
-		strings.Join(editedTask.Labels, ", "),
-		commands.FormatTaskTypeForBot(editedTask.TaskType))
-
-	if len(editedTask.MissingDetails) > 0 {
-		responseText += fmt.Sprintf(
-			"\n*Можно ещё уточнить:* %s\nЕсли хочешь, просто ответь на это сообщение и дополни недостающие детали.\n\n",
-			strings.Join(editedTask.MissingDetails, ", "),
-		)
-	} else {
-		responseText += "\n"
-	}
+		"Если хочешь, просто ответь на это сообщение и дополни это в задаче.",
+	)
+	responseText += "\n\n"
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, responseText)
 	msg.ParseMode = "Markdown"
+	msg.DisableWebPagePreview = true
 	msg.ReplyMarkup = commands.CreateInlineKeyboard(sessionIDInt)
 
 	b.sendResponse(&msg)

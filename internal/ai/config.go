@@ -8,11 +8,12 @@ import (
 )
 
 type AiSettings struct {
-	Model            string `yaml:"model"`
-	ModelURLTemplate string `yaml:"model_url_template"`
-	CreateTaskPrompt string `yaml:"create_task_prompt"`
-	EditTaskPrompt   string `yaml:"edit_task_prompt"`
-	TaskTemplatesDir string `yaml:"task_templates_dir"`
+	Model              string `yaml:"model"`
+	ModelURLTemplate   string `yaml:"model_url_template"`
+	CreateTaskPrompt   string `yaml:"create_task_prompt"`
+	EditTaskPrompt     string `yaml:"edit_task_prompt"`
+	AnalyzeLinksPrompt string `yaml:"analyze_links_prompt"`
+	TaskTemplatesDir   string `yaml:"task_templates_dir"`
 }
 
 type AiSettingsRoot struct {
@@ -38,9 +39,31 @@ func LoadAiSettings(path string) (AiSettings, error) {
 		return AiSettings{}, fmt.Errorf("prompts missing in AI settings")
 	}
 
+	if root.OpenRouter.AnalyzeLinksPrompt == "" {
+		root.OpenRouter.AnalyzeLinksPrompt = defaultAnalyzeLinksPrompt
+	}
+
 	if root.OpenRouter.TaskTemplatesDir == "" {
 		root.OpenRouter.TaskTemplatesDir = "configs/task_templates"
 	}
 
 	return root.OpenRouter, nil
 }
+
+const defaultAnalyzeLinksPrompt = `You are a task assistant. Select only links that are useful materials for creating, understanding, implementing, or verifying the task.
+Return only raw JSON:
+{
+  "links": [
+    {
+      "url": "one of input URLs",
+      "role": "logs | metrics | docs | design | chat | other",
+      "reason": "brief Russian phrase, 4-8 words, why this link is useful"
+    }
+  ]
+}
+Rules:
+- Use only URLs from the input candidates.
+- Do not fetch or assume page contents.
+- Select at most 10 links.
+- Keep reason compact: 4-8 words, no long sentences.
+- If no link is useful, return {"links":[]}.`

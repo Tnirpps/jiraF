@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/db"
+	"github.com/user/telegram-bot/internal/tasklinks"
 	"github.com/user/telegram-bot/internal/todoist"
 )
 
@@ -19,8 +20,16 @@ type MockAIClient struct {
 	mock.Mock
 }
 
-func (m *MockAIClient) AnalyzeDiscussion(ctx context.Context, messages []string) (*ai.AnalyzedTask, error) {
-	args := m.Called(ctx, messages)
+func (m *MockAIClient) AnalyzeLinks(ctx context.Context, messages []string, candidates []tasklinks.LinkCandidate) ([]tasklinks.TaskLink, error) {
+	args := m.Called(ctx, messages, candidates)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]tasklinks.TaskLink), args.Error(1)
+}
+
+func (m *MockAIClient) AnalyzeDiscussion(ctx context.Context, messages []string, selectedLinks []tasklinks.TaskLink) (*ai.AnalyzedTask, error) {
+	args := m.Called(ctx, messages, selectedLinks)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -62,6 +71,7 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 				SessionID: sql.NullInt32{Int32: 42, Valid: true},
 				MessageID: 1001,
 				Text:      "Let's create a task for implementing the NLP feature",
+				Links:     tasklinks.TaskLinkSlice{{URL: "https://docs.example.com/nlp"}},
 			},
 			{
 				ID:        2,
@@ -94,14 +104,19 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 			Labels:         []string{"backend", "ai"},
 			TaskType:       "epic",
 			MissingDetails: []string{"срок", "риски"},
+			SelectedLinks:  []tasklinks.TaskLink{{URL: "https://docs.example.com/nlp", Role: "docs", Reason: "документация по NLP-фиче"}},
 		}
+		selectedLinks := []tasklinks.TaskLink{{URL: "https://docs.example.com/nlp", Role: "docs", Reason: "документация по NLP-фиче"}}
+		mockAI.On("AnalyzeLinks", mock.Anything, mock.Anything, mock.MatchedBy(func(candidates []tasklinks.LinkCandidate) bool {
+			return len(candidates) == 1 && candidates[0].URL == "https://docs.example.com/nlp"
+		})).Return(selectedLinks, nil)
 
 		// ✅ Expect formatted messages (with username and timestamp)
 		mockAI.On("AnalyzeDiscussion", mock.Anything, []string{
 			"Unknown Author, [0001-01-01 00:00:00]: Let's create a task for implementing the NLP feature",
 			"Unknown Author, [0001-01-01 00:00:00]: It should be done by Friday",
 			"Unknown Author, [0001-01-01 00:00:00]: This is high priority",
-		}).Return(analyzedTask, nil)
+		}, selectedLinks).Return(analyzedTask, nil)
 
 		// Mock saving draft task
 		mockDB.On(
@@ -115,6 +130,7 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 			"epic",
 			[]string{"backend", "ai"},
 			[]string{"срок", "риски"},
+			selectedLinks,
 			"@max",
 		).Return(nil)
 
@@ -142,7 +158,10 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 		assert.Contains(t, result.Text, "*Тип задачи:* Эпик")
 		assert.Contains(t, result.Text, "*Исполнитель:* @max")
 		assert.Contains(t, result.Text, "*Метки:* backend, ai")
-		assert.Contains(t, result.Text, "*Можно ещё уточнить:* срок, риски")
+		assert.Contains(t, result.Text, "*Полезные материалы:*")
+		assert.Contains(t, result.Text, "docs: https://docs.example.com/nlp — документация по NLP-фиче")
+		assert.Contains(t, result.Text, "*Можно ещё уточнить:* похоже, перед созданием задачи стоит обсудить срок и риски.")
+		assert.True(t, result.DisableWebPagePreview)
 
 		// Check that the message has a reply markup with buttons
 		markup, ok := result.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup)
@@ -312,4 +331,42 @@ func TestFormatTaskType(t *testing.T) {
 			assert.Equal(t, tc.expected, formatTaskType(tc.input))
 		})
 	}
+}
+
+func TestFormatMissingDetailsPrompt(t *testing.T) {
+	result := FormatMissingDetailsPrompt([]string{"Срок", "Риски", "Критерии готовности"})
+
+	assert.Equal(
+		t,
+		"*Можно ещё уточнить:* похоже, перед созданием задачи стоит обсудить срок, риски и критерии готовности.",
+		result,
+	)
+}
+
+func TestFormatDescriptionForTelegramConvertsMarkdownHeadings(t *testing.T) {
+	description := "Описание\n\n### Шаги воспроизведения\nЗайти на хост.\n\n## Уточненные детали\n- пункт"
+
+	result := FormatDescriptionForTelegram(description)
+
+	assert.NotContains(t, result, "###")
+	assert.NotContains(t, result, "##")
+	assert.Contains(t, result, "*Шаги воспроизведения*")
+	assert.Contains(t, result, "*Уточненные детали*")
+}
+
+func TestFormatTaskPreviewSkipsEmptyFields(t *testing.T) {
+	task := &ai.AnalyzedTask{
+		Title:        "Починить бота",
+		Description:  "Описание",
+		PriorityText: "Высокий",
+		TaskType:     "bug",
+		Labels:       []string{"", "  "},
+	}
+
+	result := FormatTaskPreview(task, "", "", "")
+
+	assert.NotContains(t, result, "*Срок выполнения:*")
+	assert.NotContains(t, result, "*Исполнитель:*")
+	assert.NotContains(t, result, "*Метки:*")
+	assert.Contains(t, result, "*Тип задачи:* Баг")
 }

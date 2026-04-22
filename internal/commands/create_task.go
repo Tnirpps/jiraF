@@ -11,6 +11,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/db"
+	"github.com/user/telegram-bot/internal/tasklinks"
 	"github.com/user/telegram-bot/internal/todoist"
 )
 
@@ -111,15 +112,26 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 		}
 	}
 
+	linkCandidates := buildLinkCandidates(messages)
+	selectedLinks := []tasklinks.TaskLink{}
+	if len(linkCandidates) > 0 {
+		selectedLinks, err = c.aiClient.AnalyzeLinks(ctx, messageTexts, linkCandidates)
+		if err != nil {
+			log.Printf("AI link analysis failed, continuing without selected links: %v", err)
+			selectedLinks = []tasklinks.TaskLink{}
+		}
+	}
+
 	// Analyze with AI using our structured prompt
 	log.Printf("Calling AI client to analyze discussion with %d messages", len(messageTexts))
 
-	analyzedTask, err := c.aiClient.AnalyzeDiscussion(ctx, messageTexts)
+	analyzedTask, err := c.aiClient.AnalyzeDiscussion(ctx, messageTexts, selectedLinks)
 	if err != nil {
 		log.Printf("AI analysis failed: %v", err)
 		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ AI суммаризация не удалась(. Попробуйте заново")
 		return &msg
 	}
+	analyzedTask.SelectedLinks = selectedLinks
 
 	log.Printf("AI analysis successful: Title: %s, Priority: %d, Due: %s",
 		analyzedTask.Title, analyzedTask.Priority, analyzedTask.DueDate)
@@ -144,6 +156,7 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 		analyzedTask.TaskType,
 		analyzedTask.Labels,
 		analyzedTask.MissingDetails,
+		analyzedTask.SelectedLinks,
 		assigneeNote,
 	)
 	if err != nil {
@@ -154,6 +167,42 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 
 	// Create preview message
 	return c.createPreviewMessage(message.Chat.ID, session.ID, analyzedTask, dueISO, assigneeNote)
+}
+
+func buildLinkCandidates(messages []db.Message) []tasklinks.LinkCandidate {
+	candidates := make([]tasklinks.LinkCandidate, 0)
+	seen := make(map[string]struct{})
+
+	for _, message := range messages {
+		for _, link := range message.Links {
+			normalizedLinks := tasklinks.NormalizeLinks([]tasklinks.TaskLink{link})
+			if len(normalizedLinks) == 0 {
+				continue
+			}
+
+			url := normalizedLinks[0].URL
+			key := strings.ToLower(url)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+
+			username := ""
+			if message.Username.Valid {
+				username = message.Username.String
+			}
+
+			seen[key] = struct{}{}
+			candidates = append(candidates, tasklinks.LinkCandidate{
+				URL:         url,
+				MessageID:   message.MessageID,
+				Username:    username,
+				Timestamp:   message.Timestamp.Format("2006-01-02 15:04:05"),
+				MessageText: message.Text,
+			})
+		}
+	}
+
+	return candidates
 }
 
 func CreateInlineKeyboard(sessionID int) tgbotapi.InlineKeyboardMarkup {
@@ -170,52 +219,99 @@ func CreateInlineKeyboard(sessionID int) tgbotapi.InlineKeyboardMarkup {
 
 // createPreviewMessage creates a task preview with buttons
 func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, task *ai.AnalyzedTask, dueISO, assigneeNote string) *tgbotapi.MessageConfig {
-	// Format due date for display (MSK timezone)
-	dueDisplay := FormatDueDateForDisplay(dueISO)
-
-	// Create response message with task details
-	responseText := fmt.Sprintf(
-		`✅ Черновик задачи готов.
-*Название:* %s
-*Описание:* %s
-`,
-		task.Title, task.Description,
-	)
-
-	if dueDisplay != "" {
-		responseText += fmt.Sprintf("\n*Срок выполнения:* %s\n", dueDisplay)
-	}
-
-	responseText += fmt.Sprintf("*Приоритет:* %s\n", task.PriorityText)
-	responseText += fmt.Sprintf("*Тип задачи:* %s\n", formatTaskType(task.TaskType))
-
-	if assigneeNote != "" {
-		responseText += fmt.Sprintf("*Исполнитель:* %s\n", assigneeNote)
-	}
-
-	if len(task.Labels) > 0 {
-		responseText += fmt.Sprintf("*Метки:* %s\n", strings.Join(task.Labels, ", "))
-	}
-
-	if len(task.MissingDetails) > 0 {
-		responseText += fmt.Sprintf(
-			"\n*Можно ещё уточнить:* %s\n",
-			strings.Join(task.MissingDetails, ", "),
-		)
-		responseText += "Если хочешь, нажми `Редактировать` и дополни эти детали.\n"
-	}
-
-	responseText += "\n"
-	responseText += "Проверь описание и выбери действие:"
+	responseText := "✅ Черновик задачи готов.\n\n"
+	responseText += FormatTaskPreview(task, dueISO, assigneeNote, "Если хочешь, нажми `Редактировать` и дополни это в задаче.")
+	responseText += "\n\nПроверь описание и выбери действие:"
 
 	// Create message with inline buttons
 	msg := tgbotapi.NewMessage(chatID, responseText)
 	msg.ParseMode = "Markdown"
+	msg.DisableWebPagePreview = true
 
 	// Add inline keyboard
 	msg.ReplyMarkup = CreateInlineKeyboard(sessionID)
 
 	return &msg
+}
+
+func FormatTaskPreview(task *ai.AnalyzedTask, dueISO, assigneeNote, missingDetailsHint string) string {
+	if task == nil {
+		return ""
+	}
+
+	dueDisplay := FormatDueDateForDisplay(dueISO)
+	description := FormatDescriptionForTelegram(task.Description)
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("*Название:* %s\n", task.Title))
+	if description != "" {
+		b.WriteString(fmt.Sprintf("*Описание:*\n%s\n", description))
+	}
+	if dueDisplay != "" {
+		b.WriteString(fmt.Sprintf("*Срок выполнения:* %s\n", dueDisplay))
+	}
+	if task.PriorityText != "" {
+		b.WriteString(fmt.Sprintf("*Приоритет:* %s\n", task.PriorityText))
+	}
+	b.WriteString(fmt.Sprintf("*Тип задачи:* %s\n", formatTaskType(task.TaskType)))
+	if assigneeNote != "" {
+		b.WriteString(fmt.Sprintf("*Исполнитель:* %s\n", assigneeNote))
+	}
+	labels := cleanLabels(task.Labels)
+	if len(labels) > 0 {
+		b.WriteString(fmt.Sprintf("*Метки:* %s\n", strings.Join(labels, ", ")))
+	}
+	if len(task.SelectedLinks) > 0 {
+		b.WriteString("\n")
+		b.WriteString(FormatSelectedLinksPreview(task.SelectedLinks))
+		b.WriteString("\n")
+	}
+	if len(task.MissingDetails) > 0 {
+		b.WriteString("\n")
+		b.WriteString(FormatMissingDetailsPrompt(task.MissingDetails))
+		b.WriteString("\n")
+		if missingDetailsHint != "" {
+			b.WriteString(missingDetailsHint)
+			b.WriteString("\n")
+		}
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+func FormatDescriptionForTelegram(description string) string {
+	lines := strings.Split(strings.TrimSpace(description), "\n")
+	formatted := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "### ") {
+			formatted = append(formatted, "*"+strings.TrimSpace(strings.TrimPrefix(trimmed, "### "))+"*")
+			continue
+		}
+		if strings.HasPrefix(trimmed, "## ") {
+			formatted = append(formatted, "*"+strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))+"*")
+			continue
+		}
+		if strings.HasPrefix(trimmed, "# ") {
+			formatted = append(formatted, "*"+strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))+"*")
+			continue
+		}
+		formatted = append(formatted, line)
+	}
+
+	return strings.TrimSpace(strings.Join(formatted, "\n"))
+}
+
+func cleanLabels(labels []string) []string {
+	cleaned := make([]string, 0, len(labels))
+	for _, label := range labels {
+		label = strings.TrimSpace(label)
+		if label != "" {
+			cleaned = append(cleaned, label)
+		}
+	}
+	return cleaned
 }
 
 func formatTaskType(taskType string) string {
@@ -247,6 +343,96 @@ func formatTaskType(taskType string) string {
 
 func FormatTaskTypeForBot(taskType string) string {
 	return formatTaskType(taskType)
+}
+
+func FormatMissingDetailsPrompt(details []string) string {
+	formattedDetails := formatDetailsList(details)
+	if formattedDetails == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("*Можно ещё уточнить:* похоже, перед созданием задачи стоит обсудить %s.", formattedDetails)
+}
+
+func FormatSelectedLinksPreview(links []tasklinks.TaskLink) string {
+	if len(links) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("*Полезные материалы:*\n")
+	for _, link := range tasklinks.NormalizeLinks(links) {
+		b.WriteString(fmt.Sprintf("• %s: %s — %s\n", link.Role, link.URL, link.Reason))
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+func AppendSelectedLinksToDescription(description string, links []tasklinks.TaskLink) string {
+	links = tasklinks.NormalizeLinks(links)
+	if len(links) == 0 {
+		return description
+	}
+
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(description))
+	if b.Len() > 0 {
+		b.WriteString("\n\n")
+	}
+	b.WriteString("## Полезные материалы\n")
+	for _, link := range links {
+		b.WriteString(fmt.Sprintf("- **%s:** %s — %s\n", link.Role, link.URL, link.Reason))
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+func formatDetailsList(details []string) string {
+	cleaned := make([]string, 0, len(details))
+	seen := make(map[string]struct{}, len(details))
+
+	for _, detail := range details {
+		detail = strings.TrimSpace(detail)
+		if detail == "" {
+			continue
+		}
+
+		detail = strings.Trim(detail, "*_`")
+		detail = lowerFirstDetailRune(detail)
+
+		key := strings.ToLower(detail)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		cleaned = append(cleaned, detail)
+	}
+
+	switch len(cleaned) {
+	case 0:
+		return ""
+	case 1:
+		return cleaned[0]
+	case 2:
+		return cleaned[0] + " и " + cleaned[1]
+	default:
+		return strings.Join(cleaned[:len(cleaned)-1], ", ") + " и " + cleaned[len(cleaned)-1]
+	}
+}
+
+func lowerFirstDetailRune(detail string) string {
+	runes := []rune(detail)
+	if len(runes) == 0 {
+		return detail
+	}
+
+	if len(runes) > 1 && unicode.IsUpper(runes[0]) && unicode.IsUpper(runes[1]) {
+		return detail
+	}
+
+	runes[0] = unicode.ToLower(runes[0])
+	return string(runes)
 }
 
 // extractAssignee extracts assignee information from messages

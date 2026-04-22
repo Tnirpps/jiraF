@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/user/telegram-bot/internal/tasklinks"
 )
 
 // ============================================================================
@@ -118,6 +120,55 @@ func TestTaskJSON_AllowsStringPriority(t *testing.T) {
 
 	if decoded.Priority != 3 {
 		t.Fatalf("Priority mismatch: got %v, want %v", decoded.Priority, 3)
+	}
+}
+
+func TestTaskJSON_CapturesUnknownTemplateFields(t *testing.T) {
+	raw := []byte(`{
+		"title": "Починить подключение Telegram бота",
+		"description": "Бот не стартует на хосте.",
+		"priority": 4,
+		"task_type": "bug",
+		"missing_details": ["что сломано", "окружение"],
+		"what_is_broken": "Не удается подключиться к Telegram боту на хосте.",
+		"expected_behavior": "Бот должен стартовать и принимать сообщения.",
+		"actual_behavior": "Бот рестартит из-за таймаута подключения."
+	}`)
+
+	var decoded AnalyzedTask
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if decoded.AdditionalFields["что сломано"] == "" {
+		t.Fatalf("expected what_is_broken to be captured, got %#v", decoded.AdditionalFields)
+	}
+	if decoded.AdditionalFields["ожидаемое поведение"] == "" {
+		t.Fatalf("expected expected_behavior to be captured, got %#v", decoded.AdditionalFields)
+	}
+}
+
+func TestTaskJSON_CapturesEpicAndTaskTemplateFields(t *testing.T) {
+	raw := []byte(`{
+		"title": "Сделать новый флоу подключения",
+		"description": "Нужно реализовать новый флоу.",
+		"priority": 3,
+		"task_type": "epic",
+		"missing_details": ["предпосылки задачи", "краткое описание решения"],
+		"prerequisites": "Задача появилась после анализа обращений.",
+		"brief_solution": "Добавить новый сценарий подключения."
+	}`)
+
+	var decoded AnalyzedTask
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if decoded.AdditionalFields["предпосылки задачи"] == "" {
+		t.Fatalf("expected prerequisites to be captured, got %#v", decoded.AdditionalFields)
+	}
+	if decoded.AdditionalFields["краткое описание решения"] == "" {
+		t.Fatalf("expected brief_solution to be captured, got %#v", decoded.AdditionalFields)
 	}
 }
 
@@ -326,8 +377,8 @@ func TestValidateAndCompleteTask_FillsDerivedAndOptionalFields(t *testing.T) {
 	if result.Labels == nil || len(result.Labels) != 0 {
 		t.Fatalf("expected empty labels slice, got %#v", result.Labels)
 	}
-	if result.MissingDetails == nil || len(result.MissingDetails) != 0 {
-		t.Fatalf("expected empty missing details slice, got %#v", result.MissingDetails)
+	if result.MissingDetails == nil || len(result.MissingDetails) != 1 || result.MissingDetails[0] != "срок" {
+		t.Fatalf("expected due date missing detail, got %#v", result.MissingDetails)
 	}
 }
 
@@ -336,7 +387,7 @@ func TestLoadTaskTemplates(t *testing.T) {
 
 	if err := os.WriteFile(
 		filepath.Join(dir, "task.md"),
-		[]byte("## Task template\n\n### Deadline"),
+		[]byte("---\nmissing_details:\n  - срок\n  - критерии готовности\n---\n\n## Task template\n\n### Deadline"),
 		0o644,
 	); err != nil {
 		t.Fatalf("write task template: %v", err)
@@ -378,6 +429,9 @@ func TestLoadTaskTemplates(t *testing.T) {
 	if templates[2].Type != "task" {
 		t.Errorf("expected third template to be task, got %s", templates[2].Type)
 	}
+	if len(templates[2].MissingDetails) != 2 {
+		t.Errorf("expected task template missing details from front matter, got %#v", templates[2].MissingDetails)
+	}
 
 	promptSection := BuildTaskTemplatesPromptSection(templates)
 	if !strings.Contains(promptSection, "TEMPLATE: epic") {
@@ -386,8 +440,51 @@ func TestLoadTaskTemplates(t *testing.T) {
 	if !strings.Contains(promptSection, "TEMPLATE: task") {
 		t.Error("prompt section should include task template header")
 	}
+	if !strings.Contains(promptSection, "Fixed follow-up fields") {
+		t.Error("prompt section should include fixed follow-up fields")
+	}
+	if !strings.Contains(promptSection, "- критерии готовности") {
+		t.Error("prompt section should include configured missing detail field")
+	}
 	if !strings.Contains(promptSection, "Manual check template") {
 		t.Error("prompt section should include template content")
+	}
+}
+
+func TestValidateAndCompleteTask_FiltersMissingDetailsByTemplate(t *testing.T) {
+	client := &AIClient{
+		taskTemplates: []TaskTemplate{
+			{
+				Type:           "bug",
+				MissingDetails: []string{"шаги воспроизведения", "ожидаемое поведение"},
+			},
+		},
+	}
+
+	task := &AnalyzedTask{
+		Title:       "Починить баг",
+		Description: "Описание бага",
+		Priority:    2,
+		TaskType:    "bug",
+		MissingDetails: []string{
+			"ожидаемое поведение",
+			"произвольное поле",
+			"шаги воспроизведения",
+			"ожидаемое поведение",
+		},
+	}
+
+	result := client.validateAndCompleteTask(task)
+	want := []string{"ожидаемое поведение", "шаги воспроизведения"}
+
+	if len(result.MissingDetails) != len(want) {
+		t.Fatalf("expected %d missing details, got %#v", len(want), result.MissingDetails)
+	}
+
+	for i := range want {
+		if result.MissingDetails[i] != want[i] {
+			t.Fatalf("missing detail %d = %q, want %q", i, result.MissingDetails[i], want[i])
+		}
 	}
 }
 
@@ -411,6 +508,179 @@ func TestNormalizeTaskType(t *testing.T) {
 				t.Errorf("normalizeTaskType(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestValidateAndCompleteTask_AppendsAdditionalFieldsToDescription(t *testing.T) {
+	client := &AIClient{
+		taskTemplates: []TaskTemplate{
+			{
+				Type:           "bug",
+				MissingDetails: []string{"что сломано", "ожидаемое поведение", "окружение"},
+			},
+		},
+	}
+
+	task := &AnalyzedTask{
+		Title:          "Починить подключение Telegram бота",
+		Description:    "Бот не стартует на хосте.",
+		Priority:       4,
+		TaskType:       "bug",
+		MissingDetails: []string{"что сломано", "ожидаемое поведение", "окружение"},
+		AdditionalFields: map[string]string{
+			"что сломано":         "Не удается подключиться к Telegram боту на хосте.",
+			"ожидаемое поведение": "Бот должен стартовать и принимать сообщения.",
+		},
+	}
+
+	result := client.validateAndCompleteTask(task)
+
+	if !strings.Contains(result.Description, "## Уточненные детали") {
+		t.Fatalf("expected additional details section, got %q", result.Description)
+	}
+	if !strings.Contains(result.Description, "**что сломано:** Не удается подключиться") {
+		t.Fatalf("expected what-is-broken detail in description, got %q", result.Description)
+	}
+	if len(result.MissingDetails) != 1 || result.MissingDetails[0] != "окружение" {
+		t.Fatalf("expected only окружение to remain missing, got %#v", result.MissingDetails)
+	}
+}
+
+func TestValidateAndCompleteTask_AddsDueDateToMissingDetails(t *testing.T) {
+	client := &AIClient{
+		taskTemplates: []TaskTemplate{
+			{
+				Type:           "bug",
+				MissingDetails: []string{"что сломано", "срок"},
+			},
+		},
+	}
+
+	task := &AnalyzedTask{
+		Title:          "Починить подключение",
+		Description:    "Описание",
+		Priority:       3,
+		TaskType:       "bug",
+		MissingDetails: []string{"что сломано"},
+	}
+
+	result := client.validateAndCompleteTask(task)
+
+	if len(result.MissingDetails) != 2 {
+		t.Fatalf("expected due date to be added to missing details, got %#v", result.MissingDetails)
+	}
+	if result.MissingDetails[1] != "срок" {
+		t.Fatalf("expected срок missing detail, got %#v", result.MissingDetails)
+	}
+}
+
+func TestValidateAndCompleteTask_DoesNotAddDueDateWhenPresent(t *testing.T) {
+	client := &AIClient{
+		taskTemplates: []TaskTemplate{
+			{
+				Type:           "task",
+				MissingDetails: []string{"срок"},
+			},
+		},
+	}
+
+	task := &AnalyzedTask{
+		Title:          "Обновить конфиг",
+		Description:    "Описание",
+		DueDate:        "2026-05-01",
+		Priority:       2,
+		TaskType:       "task",
+		MissingDetails: []string{},
+	}
+
+	result := client.validateAndCompleteTask(task)
+
+	if len(result.MissingDetails) != 0 {
+		t.Fatalf("expected no missing details when due date is present, got %#v", result.MissingDetails)
+	}
+}
+
+func TestValidateAndCompleteTask_RemovesFilledEpicAndTaskMissingDetails(t *testing.T) {
+	client := &AIClient{
+		taskTemplates: []TaskTemplate{
+			{
+				Type:           "epic",
+				MissingDetails: []string{"предпосылки задачи", "краткое описание решения", "риски"},
+			},
+			{
+				Type:           "task",
+				MissingDetails: []string{"контекст задачи", "что нужно сделать", "срок"},
+			},
+		},
+	}
+
+	epic := client.validateAndCompleteTask(&AnalyzedTask{
+		Title:          "Сделать новый флоу",
+		Description:    "Описание",
+		Priority:       3,
+		TaskType:       "epic",
+		MissingDetails: []string{"предпосылки задачи", "краткое описание решения", "риски"},
+		AdditionalFields: map[string]string{
+			"prerequisites":  "Есть обращения пользователей.",
+			"brief_solution": "Добавить новый флоу.",
+		},
+	})
+
+	if len(epic.MissingDetails) != 1 || epic.MissingDetails[0] != "риски" {
+		t.Fatalf("expected only risks to remain missing, got %#v", epic.MissingDetails)
+	}
+
+	task := client.validateAndCompleteTask(&AnalyzedTask{
+		Title:          "Обновить конфиг",
+		Description:    "Описание",
+		Priority:       2,
+		TaskType:       "task",
+		MissingDetails: []string{"контекст задачи", "что нужно сделать", "срок"},
+		AdditionalFields: map[string]string{
+			"context":    "Нужно подготовить окружение.",
+			"what_to_do": "Обновить конфигурацию сервиса.",
+		},
+	})
+
+	if len(task.MissingDetails) != 1 || task.MissingDetails[0] != "срок" {
+		t.Fatalf("expected only deadline to remain missing, got %#v", task.MissingDetails)
+	}
+}
+
+func TestParseLinkAnalysisResponseFiltersInvalidLinks(t *testing.T) {
+	client := &AIClient{}
+	response := &OpenRouterResponse{
+		Choices: []OpenRouterChoice{
+			{
+				Message: OpenRouterMessage{
+					Content: `{
+						"links": [
+							{"url": "https://logs.example.com/a", "role": "logs", "reason": "логи ошибки"},
+							{"url": "https://invented.example.com/a", "role": "docs", "reason": "лишняя ссылка"},
+							{"url": "https://docs.example.com/a", "role": "unknown", "reason": ""}
+						]
+					}`,
+				},
+			},
+		},
+	}
+
+	result, err := client.parseLinkAnalysisResponse(response, []tasklinks.LinkCandidate{
+		{URL: "https://logs.example.com/a"},
+		{URL: "https://docs.example.com/a"},
+	})
+	if err != nil {
+		t.Fatalf("parseLinkAnalysisResponse() error = %v", err)
+	}
+
+	if len(result) != 2 {
+		t.Fatalf("expected 2 links, got %#v", result)
+	}
+	if result[1].Role != "other" {
+		t.Fatalf("expected unknown role to be normalized to other, got %q", result[1].Role)
+	}
+	if result[1].Reason == "" {
+		t.Fatal("expected empty reason to be replaced")
 	}
 }
 

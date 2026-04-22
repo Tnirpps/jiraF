@@ -34,11 +34,15 @@ CREATE TABLE IF NOT EXISTS messages (
     user_id BIGINT,
     username TEXT,
     text TEXT,
+    links JSONB NOT NULL DEFAULT '[]'::jsonb,
     ts TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS messages_chat_id_idx ON messages(chat_id);
 CREATE INDEX IF NOT EXISTS messages_session_id_idx ON messages(session_id);
 CREATE INDEX IF NOT EXISTS messages_ts_idx ON messages(ts);
+
+ALTER TABLE messages
+    ADD COLUMN IF NOT EXISTS links JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- Create draft_tasks table
 CREATE TABLE IF NOT EXISTS draft_tasks (
@@ -50,6 +54,7 @@ CREATE TABLE IF NOT EXISTS draft_tasks (
     task_type TEXT,
     labels JSONB NOT NULL DEFAULT '[]'::jsonb,
     missing_details JSONB NOT NULL DEFAULT '[]'::jsonb,
+    selected_links JSONB NOT NULL DEFAULT '[]'::jsonb,
     assignee_note TEXT,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
@@ -57,7 +62,8 @@ CREATE TABLE IF NOT EXISTS draft_tasks (
 ALTER TABLE draft_tasks
     ADD COLUMN IF NOT EXISTS task_type TEXT,
     ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb,
-    ADD COLUMN IF NOT EXISTS missing_details JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ADD COLUMN IF NOT EXISTS missing_details JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS selected_links JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- Create created_tasks table
 CREATE TABLE IF NOT EXISTS created_tasks (
@@ -71,6 +77,7 @@ CREATE TABLE IF NOT EXISTS created_tasks (
     priority INTEGER,
     task_type TEXT,
     labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+    selected_links JSONB NOT NULL DEFAULT '[]'::jsonb,
     assignee_note TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
@@ -83,6 +90,7 @@ ALTER TABLE created_tasks
     ADD COLUMN IF NOT EXISTS priority INTEGER,
     ADD COLUMN IF NOT EXISTS task_type TEXT,
     ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS selected_links JSONB NOT NULL DEFAULT '[]'::jsonb,
     ADD COLUMN IF NOT EXISTS assignee_note TEXT;
 
 -- Create audit_edits table

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/user/telegram-bot/internal/tasklinks"
 )
 
 var ErrNoActiveSession = errors.New("no active session found")
@@ -186,7 +188,7 @@ func (m *Manager) CloseSession(ctx context.Context, chatID int64) error {
 }
 
 // SaveMessage saves a message from a chat
-func (m *Manager) SaveMessage(ctx context.Context, chatID int64, messageID int, userID int64, username, text string) error {
+func (m *Manager) SaveMessage(ctx context.Context, chatID int64, messageID int, userID int64, username, text string, links []tasklinks.TaskLink) error {
 	if err := m.EnsureChatExists(ctx, chatID); err != nil {
 		return err
 	}
@@ -200,8 +202,8 @@ func (m *Manager) SaveMessage(ctx context.Context, chatID int64, messageID int, 
 	}
 
 	query := `
-		INSERT INTO messages (chat_id, session_id, message_id, user_id, username, text)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO messages (chat_id, session_id, message_id, user_id, username, text, links)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 
 	var nullUserID sql.NullInt64
@@ -225,6 +227,7 @@ func (m *Manager) SaveMessage(ctx context.Context, chatID int64, messageID int, 
 		nullUserID,
 		nullUsername,
 		text,
+		tasklinks.TaskLinkSlice(links),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save message: %w", err)
@@ -236,7 +239,7 @@ func (m *Manager) SaveMessage(ctx context.Context, chatID int64, messageID int, 
 // GetSessionMessages gets all messages for a session
 func (m *Manager) GetSessionMessages(ctx context.Context, sessionID int) ([]Message, error) {
 	query := `
-		SELECT id, chat_id, session_id, message_id, user_id, username, text, ts
+		SELECT id, chat_id, session_id, message_id, user_id, username, text, links, ts
 		FROM messages
 		WHERE session_id = $1
 		ORDER BY ts ASC
@@ -258,6 +261,7 @@ func (m *Manager) GetSessionMessages(ctx context.Context, sessionID int) ([]Mess
 			&msg.UserID,
 			&msg.Username,
 			&msg.Text,
+			&msg.Links,
 			&msg.Timestamp,
 		)
 		if err != nil {
@@ -281,16 +285,17 @@ func (m *Manager) SaveDraftTask(
 	priority int,
 	taskType string,
 	labels, missingDetails []string,
+	selectedLinks []tasklinks.TaskLink,
 	assigneeNote string,
 ) error {
 	query := `
 		INSERT INTO draft_tasks (
-			session_id, title, description, due_iso, priority, task_type, labels, missing_details, assignee_note, updated_at
+			session_id, title, description, due_iso, priority, task_type, labels, missing_details, selected_links, assignee_note, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (session_id) DO UPDATE
 		SET title = $2, description = $3, due_iso = $4, priority = $5, task_type = $6,
-		    labels = $7, missing_details = $8, assignee_note = $9, updated_at = $10
+		    labels = $7, missing_details = $8, selected_links = $9, assignee_note = $10, updated_at = $11
 	`
 
 	_, err := m.db.ExecContext(
@@ -304,6 +309,7 @@ func (m *Manager) SaveDraftTask(
 		sql.NullString{String: taskType, Valid: taskType != ""},
 		StringSlice(labels),
 		StringSlice(missingDetails),
+		tasklinks.TaskLinkSlice(selectedLinks),
 		sql.NullString{String: assigneeNote, Valid: assigneeNote != ""},
 		time.Now(),
 	)
@@ -316,7 +322,7 @@ func (m *Manager) SaveDraftTask(
 
 func (m *Manager) GetDraftTask(ctx context.Context, sessionID int) (DraftTask, error) {
 	const query = `
-        SELECT session_id, title, description, due_iso, priority, task_type, labels, missing_details, assignee_note, updated_at
+        SELECT session_id, title, description, due_iso, priority, task_type, labels, missing_details, selected_links, assignee_note, updated_at
         FROM draft_tasks
         WHERE session_id = $1
     `
@@ -331,6 +337,7 @@ func (m *Manager) GetDraftTask(ctx context.Context, sessionID int) (DraftTask, e
 		&t.TaskType,
 		&t.Labels,
 		&t.MissingDetails,
+		&t.SelectedLinks,
 		&t.AssigneeNote,
 		&t.UpdatedAt,
 	)
@@ -362,9 +369,9 @@ func (m *Manager) DeleteDraftTask(ctx context.Context, sessionID int) error {
 func (m *Manager) SaveCreatedTask(ctx context.Context, task DraftTask, todoistTaskID, url string) error {
 	query := `
 		INSERT INTO created_tasks (
-			session_id, todoist_task_id, url, title, description, due_iso, priority, task_type, labels, assignee_note
+			session_id, todoist_task_id, url, title, description, due_iso, priority, task_type, labels, selected_links, assignee_note
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
 	_, err := m.db.ExecContext(
 		ctx,
@@ -378,6 +385,7 @@ func (m *Manager) SaveCreatedTask(ctx context.Context, task DraftTask, todoistTa
 		task.Priority,
 		task.TaskType,
 		task.Labels,
+		task.SelectedLinks,
 		task.AssigneeNote,
 	)
 	if err != nil {
