@@ -173,7 +173,7 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 
 	todoistRequest := &todoist.TaskRequest{
 		Content:     task.Title.String,
-		Description: AppendSelectedLinksToDescription(task.Description.String, task.SelectedLinks),
+		Description: BuildTodoistDescription(task.Description.String, task.Fields, task.SelectedLinks),
 		ProjectID:   projectID,
 		Priority:    int(task.Priority.Int32),
 		DueDate:     task.DueISO.String,

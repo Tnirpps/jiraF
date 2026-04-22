@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/db"
+	"github.com/user/telegram-bot/internal/taskfields"
 	"github.com/user/telegram-bot/internal/tasklinks"
 )
 
@@ -102,8 +103,8 @@ func (m *MockDBManager) GetSessionMessages(ctx context.Context, sessionID int) (
 	return args.Get(0).([]db.Message), args.Error(1)
 }
 
-func (m *MockDBManager) SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, taskType string, labels, missingDetails []string, selectedLinks []tasklinks.TaskLink, assigneeNote string) error {
-	args := m.Called(ctx, sessionID, title, description, dueISO, priority, taskType, labels, missingDetails, selectedLinks, assigneeNote)
+func (m *MockDBManager) SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, taskType string, labels, missingDetails []string, selectedLinks []tasklinks.TaskLink, assigneeNote string, fields taskfields.TaskFields) error {
+	args := m.Called(ctx, sessionID, title, description, dueISO, priority, taskType, labels, missingDetails, selectedLinks, assigneeNote, fields)
 	return args.Error(0)
 }
 

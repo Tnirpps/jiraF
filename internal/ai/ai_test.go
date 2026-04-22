@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/user/telegram-bot/internal/taskfields"
 	"github.com/user/telegram-bot/internal/tasklinks"
 )
 
@@ -63,15 +64,17 @@ func (e *PriorityError) Error() string {
 
 func TestTaskJSON(t *testing.T) {
 	task := AnalyzedTask{
-		Title:          "Тестовая задача",
-		Description:    "Описание тестовой задачи",
-		DueDate:        "2026-03-20",
-		Priority:       3,
-		PriorityText:   "High",
-		AssigneeNote:   "@qa-team",
-		Labels:         []string{"frontend", "bug"},
-		TaskType:       "bug",
-		MissingDetails: []string{"шаги воспроизведения", "ожидаемое поведение"},
+		Title:        "Тестовая задача",
+		Description:  "Описание тестовой задачи",
+		DueDate:      "2026-03-20",
+		Priority:     3,
+		PriorityText: "High",
+		AssigneeNote: "@qa-team",
+		Labels:       []string{"frontend", "bug"},
+		TaskType:     "bug",
+		TaskFields: taskfields.TaskFields{
+			WhatIsBroken: "Форма падает при сохранении.",
+		},
 	}
 
 	data, err := json.Marshal(task)
@@ -99,8 +102,8 @@ func TestTaskJSON(t *testing.T) {
 	if decoded.TaskType != task.TaskType {
 		t.Errorf("TaskType mismatch: got %v, want %v", decoded.TaskType, task.TaskType)
 	}
-	if len(decoded.MissingDetails) != len(task.MissingDetails) {
-		t.Errorf("MissingDetails length mismatch: got %v, want %v", len(decoded.MissingDetails), len(task.MissingDetails))
+	if decoded.WhatIsBroken != task.WhatIsBroken {
+		t.Errorf("WhatIsBroken mismatch: got %v, want %v", decoded.WhatIsBroken, task.WhatIsBroken)
 	}
 }
 
@@ -123,16 +126,16 @@ func TestTaskJSON_AllowsStringPriority(t *testing.T) {
 	}
 }
 
-func TestTaskJSON_CapturesUnknownTemplateFields(t *testing.T) {
+func TestTaskJSON_CapturesTypedTaskFields(t *testing.T) {
 	raw := []byte(`{
 		"title": "Починить подключение Telegram бота",
 		"description": "Бот не стартует на хосте.",
 		"priority": 4,
 		"task_type": "bug",
-		"missing_details": ["что сломано", "окружение"],
 		"what_is_broken": "Не удается подключиться к Telegram боту на хосте.",
 		"expected_behavior": "Бот должен стартовать и принимать сообщения.",
-		"actual_behavior": "Бот рестартит из-за таймаута подключения."
+		"actual_behavior": "Бот рестартит из-за таймаута подключения.",
+		"criteria ready": "Это неизвестное поле должно игнорироваться."
 	}`)
 
 	var decoded AnalyzedTask
@@ -140,11 +143,11 @@ func TestTaskJSON_CapturesUnknownTemplateFields(t *testing.T) {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 
-	if decoded.AdditionalFields["что сломано"] == "" {
-		t.Fatalf("expected what_is_broken to be captured, got %#v", decoded.AdditionalFields)
+	if decoded.WhatIsBroken == "" {
+		t.Fatalf("expected what_is_broken to be captured, got %#v", decoded.TaskFields)
 	}
-	if decoded.AdditionalFields["ожидаемое поведение"] == "" {
-		t.Fatalf("expected expected_behavior to be captured, got %#v", decoded.AdditionalFields)
+	if decoded.ExpectedBehavior == "" {
+		t.Fatalf("expected expected_behavior to be captured, got %#v", decoded.TaskFields)
 	}
 }
 
@@ -154,7 +157,6 @@ func TestTaskJSON_CapturesEpicAndTaskTemplateFields(t *testing.T) {
 		"description": "Нужно реализовать новый флоу.",
 		"priority": 3,
 		"task_type": "epic",
-		"missing_details": ["предпосылки задачи", "краткое описание решения"],
 		"prerequisites": "Задача появилась после анализа обращений.",
 		"brief_solution": "Добавить новый сценарий подключения."
 	}`)
@@ -164,11 +166,11 @@ func TestTaskJSON_CapturesEpicAndTaskTemplateFields(t *testing.T) {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 
-	if decoded.AdditionalFields["предпосылки задачи"] == "" {
-		t.Fatalf("expected prerequisites to be captured, got %#v", decoded.AdditionalFields)
+	if decoded.Prerequisites == "" {
+		t.Fatalf("expected prerequisites to be captured, got %#v", decoded.TaskFields)
 	}
-	if decoded.AdditionalFields["краткое описание решения"] == "" {
-		t.Fatalf("expected brief_solution to be captured, got %#v", decoded.AdditionalFields)
+	if decoded.BriefSolution == "" {
+		t.Fatalf("expected brief_solution to be captured, got %#v", decoded.TaskFields)
 	}
 }
 
@@ -377,8 +379,8 @@ func TestValidateAndCompleteTask_FillsDerivedAndOptionalFields(t *testing.T) {
 	if result.Labels == nil || len(result.Labels) != 0 {
 		t.Fatalf("expected empty labels slice, got %#v", result.Labels)
 	}
-	if result.MissingDetails == nil || len(result.MissingDetails) != 1 || result.MissingDetails[0] != "срок" {
-		t.Fatalf("expected due date missing detail, got %#v", result.MissingDetails)
+	if result.MissingDetails == nil || len(result.MissingDetails) != 0 {
+		t.Fatalf("expected empty missing details without template metadata, got %#v", result.MissingDetails)
 	}
 }
 
@@ -387,7 +389,7 @@ func TestLoadTaskTemplates(t *testing.T) {
 
 	if err := os.WriteFile(
 		filepath.Join(dir, "task.md"),
-		[]byte("---\nmissing_details:\n  - срок\n  - критерии готовности\n---\n\n## Task template\n\n### Deadline"),
+		[]byte("---\ndescription: Обычная задача\nfields:\n  - key: due_date\n    label: Срок\n    description: Дедлайн\n  - key: readiness_criteria\n    label: Критерии готовности\n    description: Как проверить готовность\n---\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("write task template: %v", err)
@@ -429,8 +431,8 @@ func TestLoadTaskTemplates(t *testing.T) {
 	if templates[2].Type != "task" {
 		t.Errorf("expected third template to be task, got %s", templates[2].Type)
 	}
-	if len(templates[2].MissingDetails) != 2 {
-		t.Errorf("expected task template missing details from front matter, got %#v", templates[2].MissingDetails)
+	if len(templates[2].Fields) != 2 {
+		t.Errorf("expected task template fields from front matter, got %#v", templates[2].Fields)
 	}
 
 	promptSection := BuildTaskTemplatesPromptSection(templates)
@@ -440,11 +442,11 @@ func TestLoadTaskTemplates(t *testing.T) {
 	if !strings.Contains(promptSection, "TEMPLATE: task") {
 		t.Error("prompt section should include task template header")
 	}
-	if !strings.Contains(promptSection, "Fixed follow-up fields") {
-		t.Error("prompt section should include fixed follow-up fields")
+	if !strings.Contains(promptSection, "Fields for this task type") {
+		t.Error("prompt section should include field list")
 	}
-	if !strings.Contains(promptSection, "- критерии готовности") {
-		t.Error("prompt section should include configured missing detail field")
+	if !strings.Contains(promptSection, "readiness_criteria") {
+		t.Error("prompt section should include configured field key")
 	}
 	if !strings.Contains(promptSection, "Manual check template") {
 		t.Error("prompt section should include template content")
@@ -455,8 +457,11 @@ func TestValidateAndCompleteTask_FiltersMissingDetailsByTemplate(t *testing.T) {
 	client := &AIClient{
 		taskTemplates: []TaskTemplate{
 			{
-				Type:           "bug",
-				MissingDetails: []string{"шаги воспроизведения", "ожидаемое поведение"},
+				Type: "bug",
+				Fields: []taskfields.FieldDefinition{
+					{Key: taskfields.ReproductionSteps, Label: "Шаги воспроизведения"},
+					{Key: taskfields.ExpectedBehavior, Label: "Ожидаемое поведение"},
+				},
 			},
 		},
 	}
@@ -466,16 +471,13 @@ func TestValidateAndCompleteTask_FiltersMissingDetailsByTemplate(t *testing.T) {
 		Description: "Описание бага",
 		Priority:    2,
 		TaskType:    "bug",
-		MissingDetails: []string{
-			"ожидаемое поведение",
-			"произвольное поле",
-			"шаги воспроизведения",
-			"ожидаемое поведение",
+		TaskFields: taskfields.TaskFields{
+			ExpectedBehavior: "Должно работать.",
 		},
 	}
 
 	result := client.validateAndCompleteTask(task)
-	want := []string{"ожидаемое поведение", "шаги воспроизведения"}
+	want := []string{"шаги воспроизведения"}
 
 	if len(result.MissingDetails) != len(want) {
 		t.Fatalf("expected %d missing details, got %#v", len(want), result.MissingDetails)
@@ -511,35 +513,35 @@ func TestNormalizeTaskType(t *testing.T) {
 	}
 }
 
-func TestValidateAndCompleteTask_AppendsAdditionalFieldsToDescription(t *testing.T) {
+func TestValidateAndCompleteTask_KeepsTaskFieldsOutOfDescription(t *testing.T) {
 	client := &AIClient{
 		taskTemplates: []TaskTemplate{
 			{
-				Type:           "bug",
-				MissingDetails: []string{"что сломано", "ожидаемое поведение", "окружение"},
+				Type: "bug",
+				Fields: []taskfields.FieldDefinition{
+					{Key: taskfields.WhatIsBroken, Label: "Что сломано"},
+					{Key: taskfields.ExpectedBehavior, Label: "Ожидаемое поведение"},
+					{Key: taskfields.Environment, Label: "Окружение"},
+				},
 			},
 		},
 	}
 
 	task := &AnalyzedTask{
-		Title:          "Починить подключение Telegram бота",
-		Description:    "Бот не стартует на хосте.",
-		Priority:       4,
-		TaskType:       "bug",
-		MissingDetails: []string{"что сломано", "ожидаемое поведение", "окружение"},
-		AdditionalFields: map[string]string{
-			"что сломано":         "Не удается подключиться к Telegram боту на хосте.",
-			"ожидаемое поведение": "Бот должен стартовать и принимать сообщения.",
+		Title:       "Починить подключение Telegram бота",
+		Description: "Бот не стартует на хосте.",
+		Priority:    4,
+		TaskType:    "bug",
+		TaskFields: taskfields.TaskFields{
+			WhatIsBroken:     "Не удается подключиться к Telegram боту на хосте.",
+			ExpectedBehavior: "Бот должен стартовать и принимать сообщения.",
 		},
 	}
 
 	result := client.validateAndCompleteTask(task)
 
-	if !strings.Contains(result.Description, "## Уточненные детали") {
-		t.Fatalf("expected additional details section, got %q", result.Description)
-	}
-	if !strings.Contains(result.Description, "**что сломано:** Не удается подключиться") {
-		t.Fatalf("expected what-is-broken detail in description, got %q", result.Description)
+	if strings.Contains(result.Description, "Уточненные детали") {
+		t.Fatalf("description should not include additional details section, got %q", result.Description)
 	}
 	if len(result.MissingDetails) != 1 || result.MissingDetails[0] != "окружение" {
 		t.Fatalf("expected only окружение to remain missing, got %#v", result.MissingDetails)
@@ -550,18 +552,20 @@ func TestValidateAndCompleteTask_AddsDueDateToMissingDetails(t *testing.T) {
 	client := &AIClient{
 		taskTemplates: []TaskTemplate{
 			{
-				Type:           "bug",
-				MissingDetails: []string{"что сломано", "срок"},
+				Type: "bug",
+				Fields: []taskfields.FieldDefinition{
+					{Key: taskfields.WhatIsBroken, Label: "Что сломано"},
+					{Key: taskfields.DueDate, Label: "Срок"},
+				},
 			},
 		},
 	}
 
 	task := &AnalyzedTask{
-		Title:          "Починить подключение",
-		Description:    "Описание",
-		Priority:       3,
-		TaskType:       "bug",
-		MissingDetails: []string{"что сломано"},
+		Title:       "Починить подключение",
+		Description: "Описание",
+		Priority:    3,
+		TaskType:    "bug",
 	}
 
 	result := client.validateAndCompleteTask(task)
@@ -578,19 +582,20 @@ func TestValidateAndCompleteTask_DoesNotAddDueDateWhenPresent(t *testing.T) {
 	client := &AIClient{
 		taskTemplates: []TaskTemplate{
 			{
-				Type:           "task",
-				MissingDetails: []string{"срок"},
+				Type: "task",
+				Fields: []taskfields.FieldDefinition{
+					{Key: taskfields.DueDate, Label: "Срок"},
+				},
 			},
 		},
 	}
 
 	task := &AnalyzedTask{
-		Title:          "Обновить конфиг",
-		Description:    "Описание",
-		DueDate:        "2026-05-01",
-		Priority:       2,
-		TaskType:       "task",
-		MissingDetails: []string{},
+		Title:       "Обновить конфиг",
+		Description: "Описание",
+		DueDate:     "2026-05-01",
+		Priority:    2,
+		TaskType:    "task",
 	}
 
 	result := client.validateAndCompleteTask(task)
@@ -604,25 +609,32 @@ func TestValidateAndCompleteTask_RemovesFilledEpicAndTaskMissingDetails(t *testi
 	client := &AIClient{
 		taskTemplates: []TaskTemplate{
 			{
-				Type:           "epic",
-				MissingDetails: []string{"предпосылки задачи", "краткое описание решения", "риски"},
+				Type: "epic",
+				Fields: []taskfields.FieldDefinition{
+					{Key: taskfields.Prerequisites, Label: "Предпосылки задачи"},
+					{Key: taskfields.BriefSolution, Label: "Краткое описание решения"},
+					{Key: taskfields.Risks, Label: "Риски"},
+				},
 			},
 			{
-				Type:           "task",
-				MissingDetails: []string{"контекст задачи", "что нужно сделать", "срок"},
+				Type: "task",
+				Fields: []taskfields.FieldDefinition{
+					{Key: taskfields.TaskContext, Label: "Контекст задачи"},
+					{Key: taskfields.WhatToDo, Label: "Что нужно сделать"},
+					{Key: taskfields.DueDate, Label: "Срок"},
+				},
 			},
 		},
 	}
 
 	epic := client.validateAndCompleteTask(&AnalyzedTask{
-		Title:          "Сделать новый флоу",
-		Description:    "Описание",
-		Priority:       3,
-		TaskType:       "epic",
-		MissingDetails: []string{"предпосылки задачи", "краткое описание решения", "риски"},
-		AdditionalFields: map[string]string{
-			"prerequisites":  "Есть обращения пользователей.",
-			"brief_solution": "Добавить новый флоу.",
+		Title:       "Сделать новый флоу",
+		Description: "Описание",
+		Priority:    3,
+		TaskType:    "epic",
+		TaskFields: taskfields.TaskFields{
+			Prerequisites: "Есть обращения пользователей.",
+			BriefSolution: "Добавить новый флоу.",
 		},
 	})
 
@@ -631,14 +643,13 @@ func TestValidateAndCompleteTask_RemovesFilledEpicAndTaskMissingDetails(t *testi
 	}
 
 	task := client.validateAndCompleteTask(&AnalyzedTask{
-		Title:          "Обновить конфиг",
-		Description:    "Описание",
-		Priority:       2,
-		TaskType:       "task",
-		MissingDetails: []string{"контекст задачи", "что нужно сделать", "срок"},
-		AdditionalFields: map[string]string{
-			"context":    "Нужно подготовить окружение.",
-			"what_to_do": "Обновить конфигурацию сервиса.",
+		Title:       "Обновить конфиг",
+		Description: "Описание",
+		Priority:    2,
+		TaskType:    "task",
+		TaskFields: taskfields.TaskFields{
+			TaskContext: "Нужно подготовить окружение.",
+			WhatToDo:    "Обновить конфигурацию сервиса.",
 		},
 	})
 

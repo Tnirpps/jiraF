@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/user/telegram-bot/internal/httpclient"
+	"github.com/user/telegram-bot/internal/taskfields"
 	"github.com/user/telegram-bot/internal/tasklinks"
 )
 
@@ -21,32 +22,31 @@ type Client interface {
 
 // AnalyzedTask represents the structured task from AI analysis
 type AnalyzedTask struct {
-	Title            string               `json:"title"`
-	Description      string               `json:"description"`
-	DueDate          string               `json:"due_date"`
-	Priority         int                  `json:"priority"`
-	PriorityText     string               `json:"priority_text,omitempty"`
-	AssigneeNote     string               `json:"assignee_note,omitempty"`
-	Labels           []string             `json:"labels,omitempty"`
-	TaskType         string               `json:"task_type,omitempty"`
-	MissingDetails   []string             `json:"missing_details,omitempty"`
-	SelectedLinks    []tasklinks.TaskLink `json:"selected_links,omitempty"`
-	AdditionalFields map[string]string    `json:"additional_fields,omitempty"`
+	Title          string               `json:"title"`
+	Description    string               `json:"description"`
+	DueDate        string               `json:"due_date"`
+	Priority       int                  `json:"priority"`
+	PriorityText   string               `json:"priority_text,omitempty"`
+	AssigneeNote   string               `json:"assignee_note,omitempty"`
+	Labels         []string             `json:"labels,omitempty"`
+	TaskType       string               `json:"task_type,omitempty"`
+	MissingDetails []string             `json:"-"`
+	SelectedLinks  []tasklinks.TaskLink `json:"selected_links,omitempty"`
+	taskfields.TaskFields
 }
 
 func (t *AnalyzedTask) UnmarshalJSON(data []byte) error {
 	type analyzedTaskAlias struct {
-		Title            string               `json:"title"`
-		Description      string               `json:"description"`
-		DueDate          string               `json:"due_date"`
-		Priority         any                  `json:"priority"`
-		PriorityText     string               `json:"priority_text,omitempty"`
-		AssigneeNote     string               `json:"assignee_note,omitempty"`
-		Labels           []string             `json:"labels,omitempty"`
-		TaskType         string               `json:"task_type,omitempty"`
-		MissingDetails   []string             `json:"missing_details,omitempty"`
-		SelectedLinks    []tasklinks.TaskLink `json:"selected_links,omitempty"`
-		AdditionalFields map[string]string    `json:"additional_fields,omitempty"`
+		Title         string               `json:"title"`
+		Description   string               `json:"description"`
+		DueDate       string               `json:"due_date"`
+		Priority      any                  `json:"priority"`
+		PriorityText  string               `json:"priority_text,omitempty"`
+		AssigneeNote  string               `json:"assignee_note,omitempty"`
+		Labels        []string             `json:"labels,omitempty"`
+		TaskType      string               `json:"task_type,omitempty"`
+		SelectedLinks []tasklinks.TaskLink `json:"selected_links,omitempty"`
+		taskfields.TaskFields
 	}
 
 	var raw analyzedTaskAlias
@@ -67,9 +67,8 @@ func (t *AnalyzedTask) UnmarshalJSON(data []byte) error {
 	t.AssigneeNote = raw.AssigneeNote
 	t.Labels = raw.Labels
 	t.TaskType = raw.TaskType
-	t.MissingDetails = raw.MissingDetails
 	t.SelectedLinks = raw.SelectedLinks
-	t.AdditionalFields = mergeAdditionalFields(raw.AdditionalFields, extractUnknownTaskFields(data))
+	t.TaskFields = raw.TaskFields
 
 	return nil
 }
@@ -108,150 +107,14 @@ func parsePriorityValue(value any) (int, error) {
 	}
 }
 
-func extractUnknownTaskFields(data []byte) map[string]string {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil
-	}
-
-	result := make(map[string]string)
-	for key, value := range raw {
-		if isKnownTaskField(key) {
-			continue
-		}
-
-		extracted := extractAdditionalFieldValue(value)
-		if extracted == "" {
-			continue
-		}
-
-		result[canonicalTaskFieldName(key)] = extracted
-	}
-
-	if len(result) == 0 {
-		return nil
-	}
-
-	return result
-}
-
-func extractAdditionalFieldValue(value json.RawMessage) string {
-	var text string
-	if err := json.Unmarshal(value, &text); err == nil {
-		return strings.TrimSpace(text)
-	}
-
-	var list []string
-	if err := json.Unmarshal(value, &list); err == nil {
-		cleaned := make([]string, 0, len(list))
-		for _, item := range list {
-			item = strings.TrimSpace(item)
-			if item != "" {
-				cleaned = append(cleaned, item)
-			}
-		}
-		return strings.Join(cleaned, "; ")
-	}
-
-	return ""
-}
-
-func mergeAdditionalFields(primary, secondary map[string]string) map[string]string {
-	if len(primary) == 0 && len(secondary) == 0 {
-		return nil
-	}
-
-	merged := make(map[string]string, len(primary)+len(secondary))
-	for key, value := range secondary {
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-		if key != "" && value != "" {
-			merged[key] = value
-		}
-	}
-	for key, value := range primary {
-		key = canonicalTaskFieldName(key)
-		value = strings.TrimSpace(value)
-		if key != "" && value != "" {
-			merged[key] = value
-		}
-	}
-
-	if len(merged) == 0 {
-		return nil
-	}
-
-	return merged
-}
-
 func isKnownTaskField(key string) bool {
 	switch key {
 	case "title", "description", "due_date", "priority", "priority_text",
-		"assignee_note", "labels", "task_type", "missing_details",
-		"selected_links", "additional_fields":
+		"assignee_note", "labels", "task_type", "selected_links":
 		return true
 	default:
-		return false
+		return taskfields.IsKnownKey(key)
 	}
-}
-
-func canonicalTaskFieldName(key string) string {
-	key = strings.TrimSpace(key)
-	switch key {
-	case "what_is_broken":
-		return "что сломано"
-	case "reproduction_steps":
-		return "шаги воспроизведения"
-	case "expected_behavior":
-		return "ожидаемое поведение"
-	case "actual_behavior":
-		return "фактическое поведение"
-	case "environment":
-		return "окружение"
-	case "impact_and_risks":
-		return "влияние и риски"
-	case "suspected_cause":
-		return "предполагаемая причина"
-	case "verification_criteria":
-		return "критерии проверки"
-	case "design_or_docs_links", "mockup_or_docs_links", "design_links":
-		return "ссылки на макет или документацию"
-	case "prerequisites", "background", "task_background":
-		return "предпосылки задачи"
-	case "problem_to_solve":
-		return "проблема, которую решаем"
-	case "brief_solution", "solution_summary", "short_solution":
-		return "краткое описание решения"
-	case "risks":
-		return "риски"
-	case "approvers", "required_approvals", "stakeholders_to_approve":
-		return "согласующие"
-	case "project_participants", "participants":
-		return "участники проекта"
-	case "acceptance_criteria", "dod":
-		return "критерии приемки"
-	case "useful_links", "related_links":
-		return "полезные ссылки"
-	case "task_context", "context":
-		return "контекст задачи"
-	case "what_to_do", "work_to_do", "required_work":
-		return "что нужно сделать"
-	case "constraints_and_dependencies", "constraints", "dependencies":
-		return "ограничения и зависимости"
-	case "deadline", "due":
-		return "срок"
-	case "readiness_criteria", "done_criteria", "completion_criteria":
-		return "критерии готовности"
-	default:
-		return humanizeTaskFieldName(key)
-	}
-}
-
-func humanizeTaskFieldName(key string) string {
-	key = strings.ReplaceAll(key, "_", " ")
-	key = strings.ReplaceAll(key, "-", " ")
-	key = strings.Join(strings.Fields(key), " ")
-	return strings.ToLower(key)
 }
 
 // AIClient клиент для работы с OpenRouter AI
@@ -551,12 +414,7 @@ func (c *AIClient) validateAndCompleteTask(task *AnalyzedTask) *AnalyzedTask {
 	}
 
 	task.TaskType = normalizeTaskType(task.TaskType)
-
-	task.MissingDetails = addDueDateMissingDetail(task.DueDate, task.MissingDetails)
-	task.MissingDetails = c.normalizeMissingDetails(task.TaskType, task.MissingDetails)
-	task.AdditionalFields = cleanAdditionalFields(task.AdditionalFields)
-	task.MissingDetails = removeFilledMissingDetails(task.MissingDetails, task.AdditionalFields)
-	task.Description = appendAdditionalFieldsToDescription(task.Description, task.AdditionalFields)
+	task.TaskFields = task.TaskFields.Clean()
 
 	if task.SelectedLinks == nil {
 		task.SelectedLinks = []tasklinks.TaskLink{}
@@ -567,149 +425,12 @@ func (c *AIClient) validateAndCompleteTask(task *AnalyzedTask) *AnalyzedTask {
 		}
 		task.SelectedLinks = tasklinks.NormalizeSelectedLinks(candidates, task.SelectedLinks)
 	}
+	task.MissingDetails = c.missingDetailsForTask(task)
 
 	log.Printf("Parsed task: Title=%s, Priority=%d, Due=%s",
 		task.Title, task.Priority, task.DueDate)
 
 	return task
-}
-
-func addDueDateMissingDetail(dueDate string, missingDetails []string) []string {
-	if strings.TrimSpace(dueDate) != "" {
-		if missingDetails == nil {
-			return []string{}
-		}
-		return missingDetails
-	}
-
-	for _, detail := range missingDetails {
-		if strings.EqualFold(strings.TrimSpace(detail), "срок") {
-			return missingDetails
-		}
-	}
-
-	return append(missingDetails, "срок")
-}
-
-func cleanAdditionalFields(fields map[string]string) map[string]string {
-	if len(fields) == 0 {
-		return nil
-	}
-
-	cleaned := make(map[string]string, len(fields))
-	for key, value := range fields {
-		key = canonicalTaskFieldName(key)
-		value = strings.TrimSpace(value)
-		if key == "" || value == "" {
-			continue
-		}
-		cleaned[key] = value
-	}
-
-	if len(cleaned) == 0 {
-		return nil
-	}
-
-	return cleaned
-}
-
-func removeFilledMissingDetails(missingDetails []string, fields map[string]string) []string {
-	if len(missingDetails) == 0 || len(fields) == 0 {
-		if missingDetails == nil {
-			return []string{}
-		}
-		return missingDetails
-	}
-
-	filled := make(map[string]struct{}, len(fields))
-	for key := range fields {
-		filled[strings.ToLower(strings.TrimSpace(key))] = struct{}{}
-	}
-
-	result := make([]string, 0, len(missingDetails))
-	for _, detail := range missingDetails {
-		key := strings.ToLower(strings.TrimSpace(detail))
-		if _, ok := filled[key]; ok {
-			continue
-		}
-		result = append(result, detail)
-	}
-
-	return result
-}
-
-func appendAdditionalFieldsToDescription(description string, fields map[string]string) string {
-	if len(fields) == 0 {
-		return strings.TrimSpace(description)
-	}
-
-	description = stripAdditionalFieldsSection(description)
-	var b strings.Builder
-	b.WriteString(strings.TrimSpace(description))
-	if b.Len() > 0 {
-		b.WriteString("\n\n")
-	}
-
-	b.WriteString("## Уточненные детали\n")
-	for _, key := range sortedAdditionalFieldKeys(fields) {
-		b.WriteString(fmt.Sprintf("- **%s:** %s\n", key, fields[key]))
-	}
-
-	return strings.TrimSpace(b.String())
-}
-
-func stripAdditionalFieldsSection(description string) string {
-	const sectionTitle = "## Уточненные детали"
-	idx := strings.Index(description, sectionTitle)
-	if idx == -1 {
-		return strings.TrimSpace(description)
-	}
-
-	return strings.TrimSpace(description[:idx])
-}
-
-func sortedAdditionalFieldKeys(fields map[string]string) []string {
-	preferredOrder := []string{
-		"ссылки на макет или документацию",
-		"предпосылки задачи",
-		"проблема, которую решаем",
-		"краткое описание решения",
-		"риски",
-		"согласующие",
-		"участники проекта",
-		"что сломано",
-		"шаги воспроизведения",
-		"ожидаемое поведение",
-		"фактическое поведение",
-		"окружение",
-		"влияние и риски",
-		"предполагаемая причина",
-		"критерии проверки",
-		"контекст задачи",
-		"что нужно сделать",
-		"ограничения и зависимости",
-		"срок",
-		"критерии готовности",
-		"критерии приемки",
-		"полезные ссылки",
-	}
-
-	keys := make([]string, 0, len(fields))
-	seen := make(map[string]struct{}, len(fields))
-	for _, key := range preferredOrder {
-		if _, ok := fields[key]; ok {
-			keys = append(keys, key)
-			seen[key] = struct{}{}
-		}
-	}
-	for key := range fields {
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		keys = append(keys, key)
-	}
-
-	return keys
 }
 
 func normalizeTaskType(taskType string) string {
@@ -729,50 +450,50 @@ func normalizeTaskType(taskType string) string {
 	}
 }
 
-func (c *AIClient) normalizeMissingDetails(taskType string, details []string) []string {
-	if details == nil {
+func (c *AIClient) missingDetailsForTask(task *AnalyzedTask) []string {
+	if task == nil {
 		return []string{}
 	}
 
-	allowed := c.missingDetailsForType(taskType)
-	if len(allowed) == 0 {
-		return cleanTemplateFields(details)
+	fields := c.fieldsForType(task.TaskType)
+	if len(fields) == 0 {
+		return []string{}
 	}
 
-	allowedByKey := make(map[string]string, len(allowed))
-	for _, field := range allowed {
-		allowedByKey[strings.ToLower(strings.TrimSpace(field))] = field
+	result := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if isFieldFilled(task, field.Key) {
+			continue
+		}
+		label := taskfields.LowerLabelForKey(field.Key)
+		if label == "" {
+			label = strings.ToLower(strings.TrimSpace(field.Label))
+		}
+		if label != "" {
+			result = append(result, label)
+		}
 	}
-
-	result := make([]string, 0, len(details))
-	seen := make(map[string]struct{}, len(details))
-	for _, detail := range details {
-		key := strings.ToLower(strings.TrimSpace(detail))
-		if key == "" {
-			continue
-		}
-
-		canonical, ok := allowedByKey[key]
-		if !ok {
-			continue
-		}
-
-		if _, ok := seen[key]; ok {
-			continue
-		}
-
-		seen[key] = struct{}{}
-		result = append(result, canonical)
-	}
-
 	return result
 }
 
-func (c *AIClient) missingDetailsForType(taskType string) []string {
+func isFieldFilled(task *AnalyzedTask, key string) bool {
+	switch strings.TrimSpace(key) {
+	case taskfields.DueDate:
+		return strings.TrimSpace(task.DueDate) != ""
+	case taskfields.SelectedLinks:
+		return len(task.SelectedLinks) > 0
+	case taskfields.DesignOrDocsLinks, taskfields.UsefulLinks:
+		return task.TaskFields.Value(key) != "" || len(task.SelectedLinks) > 0
+	default:
+		return task.TaskFields.Value(key) != ""
+	}
+}
+
+func (c *AIClient) fieldsForType(taskType string) []taskfields.FieldDefinition {
 	taskType = normalizeTaskType(taskType)
 	for _, template := range c.taskTemplates {
 		if template.Type == taskType {
-			return template.MissingDetails
+			return template.Fields
 		}
 	}
 

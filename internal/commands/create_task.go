@@ -11,6 +11,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/db"
+	"github.com/user/telegram-bot/internal/taskfields"
 	"github.com/user/telegram-bot/internal/tasklinks"
 	"github.com/user/telegram-bot/internal/todoist"
 )
@@ -158,6 +159,7 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 		analyzedTask.MissingDetails,
 		analyzedTask.SelectedLinks,
 		assigneeNote,
+		analyzedTask.TaskFields,
 	)
 	if err != nil {
 		log.Printf("Failed to save draft task: %v", err)
@@ -247,6 +249,10 @@ func FormatTaskPreview(task *ai.AnalyzedTask, dueISO, assigneeNote, missingDetai
 	if description != "" {
 		b.WriteString(fmt.Sprintf("*Описание:*\n%s\n", description))
 	}
+	if fieldsPreview := FormatTaskFieldsPreview(task.TaskFields); fieldsPreview != "" {
+		b.WriteString(fieldsPreview)
+		b.WriteString("\n")
+	}
 	if dueDisplay != "" {
 		b.WriteString(fmt.Sprintf("*Срок выполнения:* %s\n", dueDisplay))
 	}
@@ -276,6 +282,18 @@ func FormatTaskPreview(task *ai.AnalyzedTask, dueISO, assigneeNote, missingDetai
 		}
 	}
 
+	return strings.TrimSpace(b.String())
+}
+
+func FormatTaskFieldsPreview(fields taskfields.TaskFields) string {
+	var b strings.Builder
+	for _, field := range fields.FilledDefinitions() {
+		value := fields.Value(field.Key)
+		if value == "" {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("*%s:* %s\n", field.Label, value))
+	}
 	return strings.TrimSpace(b.String())
 }
 
@@ -371,7 +389,7 @@ func FormatSelectedLinksPreview(links []tasklinks.TaskLink) string {
 func AppendSelectedLinksToDescription(description string, links []tasklinks.TaskLink) string {
 	links = tasklinks.NormalizeLinks(links)
 	if len(links) == 0 {
-		return description
+		return strings.TrimSpace(description)
 	}
 
 	var b strings.Builder
@@ -384,6 +402,62 @@ func AppendSelectedLinksToDescription(description string, links []tasklinks.Task
 		b.WriteString(fmt.Sprintf("- **%s:** %s — %s\n", link.Role, link.URL, link.Reason))
 	}
 
+	return strings.TrimSpace(b.String())
+}
+
+func BuildTodoistDescription(description string, fields taskfields.TaskFields, links []tasklinks.TaskLink) string {
+	var sections []string
+
+	if description = strings.TrimSpace(description); description != "" {
+		sections = append(sections, "## Описание\n"+description)
+	}
+	if fieldsText := formatTaskFieldsForTodoist(fields); fieldsText != "" {
+		sections = append(sections, "## Детали задачи\n"+fieldsText)
+	}
+	if linksText := formatSelectedLinksForTodoist(links); linksText != "" {
+		sections = append(sections, "## Полезные материалы\n"+linksText)
+	}
+
+	return strings.TrimSpace(strings.Join(sections, "\n\n"))
+}
+
+func AppendTaskFieldsToDescription(description string, fields taskfields.TaskFields) string {
+	fieldsText := formatTaskFieldsForTodoist(fields)
+	if fieldsText == "" {
+		return strings.TrimSpace(description)
+	}
+
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(description))
+	if b.Len() > 0 {
+		b.WriteString("\n\n")
+	}
+	b.WriteString(fieldsText)
+	return strings.TrimSpace(b.String())
+}
+
+func formatTaskFieldsForTodoist(fields taskfields.TaskFields) string {
+	var b strings.Builder
+	for _, field := range fields.FilledDefinitions() {
+		value := fields.Value(field.Key)
+		if value == "" {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("- **%s:** %s\n", field.Label, value))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatSelectedLinksForTodoist(links []tasklinks.TaskLink) string {
+	links = tasklinks.NormalizeLinks(links)
+	if len(links) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for _, link := range links {
+		b.WriteString(fmt.Sprintf("- **%s:** %s — %s\n", link.Role, link.URL, link.Reason))
+	}
 	return strings.TrimSpace(b.String())
 }
 

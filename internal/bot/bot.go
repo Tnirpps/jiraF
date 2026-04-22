@@ -370,6 +370,7 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		TaskType:       draftTask.TaskType.String,
 		MissingDetails: []string(draftTask.MissingDetails),
 		SelectedLinks:  []tasklinks.TaskLink(draftTask.SelectedLinks),
+		TaskFields:     draftTask.Fields,
 	}
 
 	editedTask, err := b.aiClient.EditTask(ctx, aiTask, message.Text)
@@ -391,6 +392,7 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		editedTask.MissingDetails,
 		editedTask.SelectedLinks,
 		editedTask.AssigneeNote,
+		editedTask.TaskFields,
 	)
 	if err != nil {
 		log.Printf("Error saving edited task: %v", err)

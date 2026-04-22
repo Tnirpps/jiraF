@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/user/telegram-bot/internal/taskfields"
 	"github.com/user/telegram-bot/internal/tasklinks"
 )
 
@@ -73,7 +74,8 @@ type DraftTask struct {
 	MissingDetails StringSlice             `db:"missing_details"`
 	SelectedLinks  tasklinks.TaskLinkSlice `db:"selected_links"`
 	AssigneeNote   sql.NullString          `db:"assignee_note"`
-	UpdatedAt      time.Time               `db:"updated_at"`
+	Fields         taskfields.TaskFields
+	UpdatedAt      time.Time `db:"updated_at"`
 }
 
 type CreatedTask struct {
@@ -89,7 +91,8 @@ type CreatedTask struct {
 	Labels        StringSlice             `db:"labels"`
 	SelectedLinks tasklinks.TaskLinkSlice `db:"selected_links"`
 	AssigneeNote  sql.NullString          `db:"assignee_note"`
-	CreatedAt     time.Time               `db:"created_at"`
+	Fields        taskfields.TaskFields
+	CreatedAt     time.Time `db:"created_at"`
 }
 
 type AuditEdit struct {

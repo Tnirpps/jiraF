@@ -7,18 +7,22 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/user/telegram-bot/internal/taskfields"
 	"gopkg.in/yaml.v3"
 )
 
 type TaskTemplate struct {
-	Type           string
-	Path           string
-	MissingDetails []string
-	Content        string
+	Type        string
+	Path        string
+	Description string
+	Fields      []taskfields.FieldDefinition
+	Content     string
 }
 
 type taskTemplateFrontMatter struct {
-	MissingDetails []string `yaml:"missing_details"`
+	Description    string                       `yaml:"description"`
+	Fields         []taskfields.FieldDefinition `yaml:"fields"`
+	MissingDetails []string                     `yaml:"missing_details"`
 }
 
 func LoadTaskTemplates(dir string) ([]TaskTemplate, error) {
@@ -48,10 +52,11 @@ func LoadTaskTemplates(dir string) ([]TaskTemplate, error) {
 		}
 
 		templates = append(templates, TaskTemplate{
-			Type:           templateType,
-			Path:           path,
-			MissingDetails: cleanTemplateFields(metadata.MissingDetails),
-			Content:        strings.TrimSpace(body),
+			Type:        templateType,
+			Path:        path,
+			Description: strings.TrimSpace(metadata.Description),
+			Fields:      cleanTemplateFieldDefinitions(metadata.Fields, metadata.MissingDetails),
+			Content:     strings.TrimSpace(body),
 		})
 	}
 
@@ -72,14 +77,21 @@ func BuildTaskTemplatesPromptSection(templates []TaskTemplate) string {
 
 	for _, template := range templates {
 		b.WriteString(fmt.Sprintf("\n=== TEMPLATE: %s ===\n", template.Type))
-		if len(template.MissingDetails) > 0 {
-			b.WriteString("Fixed follow-up fields for missing_details. Use only these exact field names when they are missing from the dialog:\n")
-			for _, field := range template.MissingDetails {
-				b.WriteString(fmt.Sprintf("- %s\n", field))
-			}
-			b.WriteString("\n")
+		if template.Description != "" {
+			b.WriteString("When to use this type:\n")
+			b.WriteString(template.Description)
+			b.WriteString("\n\n")
 		}
-		b.WriteString(template.Content)
+		if len(template.Fields) > 0 {
+			b.WriteString("Fields for this task type. Fill only these exact JSON keys when the dialog contains the information:\n")
+			for _, field := range template.Fields {
+				b.WriteString(fmt.Sprintf("- %s (%s): %s\n", field.Key, field.Label, field.Description))
+			}
+		}
+		if template.Content != "" {
+			b.WriteString("\n")
+			b.WriteString(template.Content)
+		}
 		b.WriteString("\n")
 	}
 
@@ -131,4 +143,56 @@ func cleanTemplateFields(fields []string) []string {
 	}
 
 	return cleaned
+}
+
+func cleanTemplateFieldDefinitions(fields []taskfields.FieldDefinition, legacyFields []string) []taskfields.FieldDefinition {
+	if len(fields) == 0 && len(legacyFields) > 0 {
+		fields = make([]taskfields.FieldDefinition, 0, len(legacyFields))
+		for _, field := range cleanTemplateFields(legacyFields) {
+			if key := keyByLegacyLabel(field); key != "" {
+				fields = append(fields, taskfields.FieldDefinition{
+					Key:   key,
+					Label: taskfields.LabelForKey(key),
+				})
+			}
+		}
+	}
+
+	cleaned := make([]taskfields.FieldDefinition, 0, len(fields))
+	seen := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		field.Key = strings.TrimSpace(field.Key)
+		field.Label = strings.TrimSpace(field.Label)
+		field.Description = strings.TrimSpace(field.Description)
+		if !taskfields.IsKnownTemplateKey(field.Key) {
+			continue
+		}
+		if _, ok := seen[field.Key]; ok {
+			continue
+		}
+		if field.Label == "" {
+			field.Label = taskfields.LabelForKey(field.Key)
+		}
+		seen[field.Key] = struct{}{}
+		cleaned = append(cleaned, field)
+	}
+
+	return cleaned
+}
+
+func keyByLegacyLabel(label string) string {
+	normalized := strings.ToLower(strings.TrimSpace(label))
+	for _, def := range taskfields.KnownDefinitions() {
+		if strings.ToLower(def.Label) == normalized {
+			return def.Key
+		}
+	}
+	switch normalized {
+	case "срок":
+		return "due_date"
+	case "полезные ссылки":
+		return "selected_links"
+	default:
+		return ""
+	}
 }

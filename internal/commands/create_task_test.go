@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/db"
+	"github.com/user/telegram-bot/internal/taskfields"
 	"github.com/user/telegram-bot/internal/tasklinks"
 	"github.com/user/telegram-bot/internal/todoist"
 )
@@ -105,6 +106,9 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 			TaskType:       "epic",
 			MissingDetails: []string{"срок", "риски"},
 			SelectedLinks:  []tasklinks.TaskLink{{URL: "https://docs.example.com/nlp", Role: "docs", Reason: "документация по NLP-фиче"}},
+			TaskFields: taskfields.TaskFields{
+				BriefSolution: "Реализовать NLP-фичу.",
+			},
 		}
 		selectedLinks := []tasklinks.TaskLink{{URL: "https://docs.example.com/nlp", Role: "docs", Reason: "документация по NLP-фиче"}}
 		mockAI.On("AnalyzeLinks", mock.Anything, mock.Anything, mock.MatchedBy(func(candidates []tasklinks.LinkCandidate) bool {
@@ -132,6 +136,7 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 			[]string{"срок", "риски"},
 			selectedLinks,
 			"@max",
+			taskfields.TaskFields{BriefSolution: "Реализовать NLP-фичу."},
 		).Return(nil)
 
 		// Create a mock message
@@ -156,6 +161,7 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 		assert.Contains(t, result.Text, "Implement NLP feature")
 		assert.Contains(t, result.Text, "*Приоритет:* Высокий")
 		assert.Contains(t, result.Text, "*Тип задачи:* Эпик")
+		assert.Contains(t, result.Text, "*Краткое описание решения:* Реализовать NLP-фичу.")
 		assert.Contains(t, result.Text, "*Исполнитель:* @max")
 		assert.Contains(t, result.Text, "*Метки:* backend, ai")
 		assert.Contains(t, result.Text, "*Полезные материалы:*")

@@ -7,12 +7,151 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/user/telegram-bot/internal/taskfields"
 	"github.com/user/telegram-bot/internal/tasklinks"
 )
 
 var ErrNoActiveSession = errors.New("no active session found")
 var ErrSessionAlreadyExists = errors.New("active session already exists for this chat")
 var ErrProjectIDNotSet = errors.New("todoist project ID not set for this chat")
+
+type nullableTaskFields struct {
+	TaskContext                sql.NullString
+	WhatToDo                   sql.NullString
+	ConstraintsAndDependencies sql.NullString
+	ReadinessCriteria          sql.NullString
+	WhatIsBroken               sql.NullString
+	ReproductionSteps          sql.NullString
+	ExpectedBehavior           sql.NullString
+	ActualBehavior             sql.NullString
+	Environment                sql.NullString
+	ImpactAndRisks             sql.NullString
+	SuspectedCause             sql.NullString
+	FixScope                   sql.NullString
+	VerificationCriteria       sql.NullString
+	DesignOrDocsLinks          sql.NullString
+	Prerequisites              sql.NullString
+	ProblemToSolve             sql.NullString
+	BriefSolution              sql.NullString
+	Risks                      sql.NullString
+	Approvers                  sql.NullString
+	ProjectParticipants        sql.NullString
+	AcceptanceCriteria         sql.NullString
+	UsefulLinks                sql.NullString
+}
+
+func nullableString(value string) sql.NullString {
+	return sql.NullString{String: value, Valid: value != ""}
+}
+
+func nullableTaskFieldsFrom(fields taskfields.TaskFields) nullableTaskFields {
+	fields = fields.Clean()
+	return nullableTaskFields{
+		TaskContext:                nullableString(fields.TaskContext),
+		WhatToDo:                   nullableString(fields.WhatToDo),
+		ConstraintsAndDependencies: nullableString(fields.ConstraintsAndDependencies),
+		ReadinessCriteria:          nullableString(fields.ReadinessCriteria),
+		WhatIsBroken:               nullableString(fields.WhatIsBroken),
+		ReproductionSteps:          nullableString(fields.ReproductionSteps),
+		ExpectedBehavior:           nullableString(fields.ExpectedBehavior),
+		ActualBehavior:             nullableString(fields.ActualBehavior),
+		Environment:                nullableString(fields.Environment),
+		ImpactAndRisks:             nullableString(fields.ImpactAndRisks),
+		SuspectedCause:             nullableString(fields.SuspectedCause),
+		FixScope:                   nullableString(fields.FixScope),
+		VerificationCriteria:       nullableString(fields.VerificationCriteria),
+		DesignOrDocsLinks:          nullableString(fields.DesignOrDocsLinks),
+		Prerequisites:              nullableString(fields.Prerequisites),
+		ProblemToSolve:             nullableString(fields.ProblemToSolve),
+		BriefSolution:              nullableString(fields.BriefSolution),
+		Risks:                      nullableString(fields.Risks),
+		Approvers:                  nullableString(fields.Approvers),
+		ProjectParticipants:        nullableString(fields.ProjectParticipants),
+		AcceptanceCriteria:         nullableString(fields.AcceptanceCriteria),
+		UsefulLinks:                nullableString(fields.UsefulLinks),
+	}
+}
+
+func (f *nullableTaskFields) scanTargets() []any {
+	return []any{
+		&f.TaskContext,
+		&f.WhatToDo,
+		&f.ConstraintsAndDependencies,
+		&f.ReadinessCriteria,
+		&f.WhatIsBroken,
+		&f.ReproductionSteps,
+		&f.ExpectedBehavior,
+		&f.ActualBehavior,
+		&f.Environment,
+		&f.ImpactAndRisks,
+		&f.SuspectedCause,
+		&f.FixScope,
+		&f.VerificationCriteria,
+		&f.DesignOrDocsLinks,
+		&f.Prerequisites,
+		&f.ProblemToSolve,
+		&f.BriefSolution,
+		&f.Risks,
+		&f.Approvers,
+		&f.ProjectParticipants,
+		&f.AcceptanceCriteria,
+		&f.UsefulLinks,
+	}
+}
+
+func (f nullableTaskFields) values() []any {
+	return []any{
+		f.TaskContext,
+		f.WhatToDo,
+		f.ConstraintsAndDependencies,
+		f.ReadinessCriteria,
+		f.WhatIsBroken,
+		f.ReproductionSteps,
+		f.ExpectedBehavior,
+		f.ActualBehavior,
+		f.Environment,
+		f.ImpactAndRisks,
+		f.SuspectedCause,
+		f.FixScope,
+		f.VerificationCriteria,
+		f.DesignOrDocsLinks,
+		f.Prerequisites,
+		f.ProblemToSolve,
+		f.BriefSolution,
+		f.Risks,
+		f.Approvers,
+		f.ProjectParticipants,
+		f.AcceptanceCriteria,
+		f.UsefulLinks,
+	}
+}
+
+func (f nullableTaskFields) taskFields() taskfields.TaskFields {
+	return taskfields.TaskFields{
+		TaskContext:                f.TaskContext.String,
+		WhatToDo:                   f.WhatToDo.String,
+		ConstraintsAndDependencies: f.ConstraintsAndDependencies.String,
+		ReadinessCriteria:          f.ReadinessCriteria.String,
+		WhatIsBroken:               f.WhatIsBroken.String,
+		ReproductionSteps:          f.ReproductionSteps.String,
+		ExpectedBehavior:           f.ExpectedBehavior.String,
+		ActualBehavior:             f.ActualBehavior.String,
+		Environment:                f.Environment.String,
+		ImpactAndRisks:             f.ImpactAndRisks.String,
+		SuspectedCause:             f.SuspectedCause.String,
+		FixScope:                   f.FixScope.String,
+		VerificationCriteria:       f.VerificationCriteria.String,
+		DesignOrDocsLinks:          f.DesignOrDocsLinks.String,
+		Prerequisites:              f.Prerequisites.String,
+		ProblemToSolve:             f.ProblemToSolve.String,
+		BriefSolution:              f.BriefSolution.String,
+		Risks:                      f.Risks.String,
+		Approvers:                  f.Approvers.String,
+		ProjectParticipants:        f.ProjectParticipants.String,
+		AcceptanceCriteria:         f.AcceptanceCriteria.String,
+		UsefulLinks:                f.UsefulLinks.String,
+	}
+}
 
 // ChatRepository handles database operations for chats
 func (m *Manager) EnsureChatExists(ctx context.Context, chatID int64) error {
@@ -287,32 +426,50 @@ func (m *Manager) SaveDraftTask(
 	labels, missingDetails []string,
 	selectedLinks []tasklinks.TaskLink,
 	assigneeNote string,
+	fields taskfields.TaskFields,
 ) error {
 	query := `
 		INSERT INTO draft_tasks (
-			session_id, title, description, due_iso, priority, task_type, labels, missing_details, selected_links, assignee_note, updated_at
+			session_id, title, description, due_iso, priority, task_type, labels, missing_details, selected_links, assignee_note,
+			task_context, what_to_do, constraints_and_dependencies, readiness_criteria,
+			what_is_broken, reproduction_steps, expected_behavior, actual_behavior, environment, impact_and_risks, suspected_cause, fix_scope, verification_criteria,
+			design_or_docs_links, prerequisites, problem_to_solve, brief_solution, risks, approvers, project_participants, acceptance_criteria, useful_links,
+			updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+			$24, $25, $26, $27, $28, $29, $30, $31, $32,
+			$33
+		)
 		ON CONFLICT (session_id) DO UPDATE
 		SET title = $2, description = $3, due_iso = $4, priority = $5, task_type = $6,
-		    labels = $7, missing_details = $8, selected_links = $9, assignee_note = $10, updated_at = $11
+		    labels = $7, missing_details = $8, selected_links = $9, assignee_note = $10,
+		    task_context = $11, what_to_do = $12, constraints_and_dependencies = $13, readiness_criteria = $14,
+		    what_is_broken = $15, reproduction_steps = $16, expected_behavior = $17, actual_behavior = $18, environment = $19,
+		    impact_and_risks = $20, suspected_cause = $21, fix_scope = $22, verification_criteria = $23,
+		    design_or_docs_links = $24, prerequisites = $25, problem_to_solve = $26, brief_solution = $27, risks = $28,
+		    approvers = $29, project_participants = $30, acceptance_criteria = $31, useful_links = $32,
+		    updated_at = $33
 	`
 
-	_, err := m.db.ExecContext(
-		ctx,
-		query,
+	fieldValues := nullableTaskFieldsFrom(fields).values()
+	args := []any{
 		sessionID,
-		sql.NullString{String: title, Valid: title != ""},
-		sql.NullString{String: description, Valid: description != ""},
-		sql.NullString{String: dueISO, Valid: dueISO != ""},
+		nullableString(title),
+		nullableString(description),
+		nullableString(dueISO),
 		sql.NullInt32{Int32: int32(priority), Valid: priority > 0},
-		sql.NullString{String: taskType, Valid: taskType != ""},
+		nullableString(taskType),
 		StringSlice(labels),
 		StringSlice(missingDetails),
 		tasklinks.TaskLinkSlice(selectedLinks),
-		sql.NullString{String: assigneeNote, Valid: assigneeNote != ""},
-		time.Now(),
-	)
+		nullableString(assigneeNote),
+	}
+	args = append(args, fieldValues...)
+	args = append(args, time.Now())
+
+	_, err := m.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to save draft task: %w", err)
 	}
@@ -322,13 +479,18 @@ func (m *Manager) SaveDraftTask(
 
 func (m *Manager) GetDraftTask(ctx context.Context, sessionID int) (DraftTask, error) {
 	const query = `
-        SELECT session_id, title, description, due_iso, priority, task_type, labels, missing_details, selected_links, assignee_note, updated_at
+        SELECT session_id, title, description, due_iso, priority, task_type, labels, missing_details, selected_links, assignee_note,
+               task_context, what_to_do, constraints_and_dependencies, readiness_criteria,
+               what_is_broken, reproduction_steps, expected_behavior, actual_behavior, environment, impact_and_risks, suspected_cause, fix_scope, verification_criteria,
+               design_or_docs_links, prerequisites, problem_to_solve, brief_solution, risks, approvers, project_participants, acceptance_criteria, useful_links,
+               updated_at
         FROM draft_tasks
         WHERE session_id = $1
     `
 
 	var t DraftTask
-	err := m.db.QueryRowContext(ctx, query, sessionID).Scan(
+	var fields nullableTaskFields
+	targets := []any{
 		&t.SessionID,
 		&t.Title,
 		&t.Description,
@@ -339,14 +501,18 @@ func (m *Manager) GetDraftTask(ctx context.Context, sessionID int) (DraftTask, e
 		&t.MissingDetails,
 		&t.SelectedLinks,
 		&t.AssigneeNote,
-		&t.UpdatedAt,
-	)
+	}
+	targets = append(targets, fields.scanTargets()...)
+	targets = append(targets, &t.UpdatedAt)
+
+	err := m.db.QueryRowContext(ctx, query, sessionID).Scan(targets...)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return DraftTask{}, fmt.Errorf("draft task not found: %w", err)
 		}
 		return DraftTask{}, fmt.Errorf("failed to get draft task: %w", err)
 	}
+	t.Fields = fields.taskFields()
 
 	return t, nil
 }
@@ -369,13 +535,18 @@ func (m *Manager) DeleteDraftTask(ctx context.Context, sessionID int) error {
 func (m *Manager) SaveCreatedTask(ctx context.Context, task DraftTask, todoistTaskID, url string) error {
 	query := `
 		INSERT INTO created_tasks (
-			session_id, todoist_task_id, url, title, description, due_iso, priority, task_type, labels, selected_links, assignee_note
+			session_id, todoist_task_id, url, title, description, due_iso, priority, task_type, labels, selected_links, assignee_note,
+			task_context, what_to_do, constraints_and_dependencies, readiness_criteria,
+			what_is_broken, reproduction_steps, expected_behavior, actual_behavior, environment, impact_and_risks, suspected_cause, fix_scope, verification_criteria,
+			design_or_docs_links, prerequisites, problem_to_solve, brief_solution, risks, approvers, project_participants, acceptance_criteria, useful_links
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+			$12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
+			$25, $26, $27, $28, $29, $30, $31, $32, $33
+		)
 	`
-	_, err := m.db.ExecContext(
-		ctx,
-		query,
+	args := []any{
 		task.SessionID,
 		todoistTaskID,
 		url,
@@ -387,7 +558,9 @@ func (m *Manager) SaveCreatedTask(ctx context.Context, task DraftTask, todoistTa
 		task.Labels,
 		task.SelectedLinks,
 		task.AssigneeNote,
-	)
+	}
+	args = append(args, nullableTaskFieldsFrom(task.Fields).values()...)
+	_, err := m.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to save created task: %w", err)
 	}

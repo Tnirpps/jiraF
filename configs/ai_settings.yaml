@@ -28,9 +28,9 @@ openrouter:
     Response requirements:
     1. Response must be a single raw JSON object
     2. Use Russian language for text values
-    3. Choose the single best task template from the available templates below
+    3. Choose the single best task_type from the available templates below
     4. Required fields: title, description, priority, task_type
-    5. Optional fields: due_date, assignee_note, labels, missing_details, selected_links
+    5. Optional fields: due_date, assignee_note, labels, selected_links, and task-type fields listed in the chosen template
     6. Return only a raw JSON object, without markdown fences or comments
     Type contract:
     type TaskPayload = {
@@ -41,8 +41,29 @@ openrouter:
       assignee_note?: string;
       labels?: string[];
       task_type: string;
-      missing_details?: string[];
       selected_links?: { url: string; role: string; reason: string }[];
+      task_context?: string;
+      what_to_do?: string;
+      constraints_and_dependencies?: string;
+      readiness_criteria?: string;
+      what_is_broken?: string;
+      reproduction_steps?: string;
+      expected_behavior?: string;
+      actual_behavior?: string;
+      environment?: string;
+      impact_and_risks?: string;
+      suspected_cause?: string;
+      fix_scope?: string;
+      verification_criteria?: string;
+      design_or_docs_links?: string;
+      prerequisites?: string;
+      problem_to_solve?: string;
+      brief_solution?: string;
+      risks?: string;
+      approvers?: string;
+      project_participants?: string;
+      acceptance_criteria?: string;
+      useful_links?: string;
     }
     JSON example:
     {
@@ -53,7 +74,9 @@ openrouter:
       "assignee_note": "",
       "labels": ["backend", "bug"],
       "task_type": "bug",
-      "missing_details": ["окружение"],
+      "what_is_broken": "Пользователи не могут завершить авторизацию после обновления конфигурации.",
+      "fix_scope": "Проверить обработку токена и исправить ошибку.",
+      "verification_criteria": "Авторизация проходит без сбоя.",
       "selected_links": [{"url": "https://example.com/logs", "role": "logs", "reason": "логи ошибки авторизации"}]
     }
     Task content rules:
@@ -61,12 +84,14 @@ openrouter:
     - Description must be plain text only: no markdown headings, bullet lists, tables, or template section names
     - Description should include only the useful task context and expected work from the discussion
     - Do not copy the whole dialog into description; summarize decisions, context, constraints, useful facts, and acceptance criteria
-    - Do not duplicate structured fields in description: due_date, priority, assignee_note, labels, task_type, missing_details, and selected_links belong only to their JSON fields
+    - Do not duplicate structured fields in description: due_date, priority, assignee_note, labels, task_type, selected_links, and task-type fields belong only to their JSON fields
     - For priority: use 4 only for truly urgent tasks
     - assignee_note is optional; fill it only when the responsible person is clearly mentioned
     - Tags should be relevant to context (e.g.: frontend, backend, bug, feature, meeting)
     - task_type must exactly match one of the provided template slugs
-    - Use the templates to classify the task and choose missing_details; do not copy template headings into description
+    - Use the templates to classify the task and choose which task-type fields may be filled
+    - Fill only exact JSON keys listed in the chosen template when the dialog contains that information
+    - Do not invent unknown fields and do not return missing_details
 
     Due date rules:
     - Always try to fill due_date.
@@ -78,15 +103,6 @@ openrouter:
     - Leave due_date empty only if the dialog is too ambiguous to understand what task should be done at all.
     - Do not mention whether due_date is explicit or estimated in description; due_date belongs only to the due_date JSON field.
 
-    missing_details rules:
-    - missing_details must contain only exact field names from "Fixed follow-up fields" of the chosen template
-    - Add a field to missing_details only if it is not covered by the dialog or by a justified due_date estimate
-    - Do not invent new missing_details names and do not rephrase fixed field names
-    - Keep missing_details short, typically 1 to 5 items
-    - If the dialog contains information for a fixed follow-up field, include the useful substance in description as plain text without the field name as a heading
-    - Do not keep a field in missing_details if you already included its information in description
-    - Do not add "срок" to missing_details when you filled due_date with a reasonable estimate
-
     selected_links rules:
     - selected_links must be copied from Selected materials; do not add, remove, or invent links
     - If Selected materials is empty, return an empty selected_links array
@@ -97,7 +113,7 @@ openrouter:
     2. Keep all other fields unchanged
     3. Response must be in JSON format
     4. Use Russian language for text values
-    5. Keep task_type aligned with the available templates and update missing_details if the user filled some gaps
+    5. Keep task_type aligned with the available templates and update task-type fields when the user filled some gaps
     6. Return only a raw JSON object, without markdown fences or comments
     Available templates:
     %s
@@ -110,18 +126,38 @@ openrouter:
       assignee_note?: string;
       labels?: string[];
       task_type: string;
-      missing_details?: string[];
       selected_links?: { url: string; role: string; reason: string }[];
+      task_context?: string;
+      what_to_do?: string;
+      constraints_and_dependencies?: string;
+      readiness_criteria?: string;
+      what_is_broken?: string;
+      reproduction_steps?: string;
+      expected_behavior?: string;
+      actual_behavior?: string;
+      environment?: string;
+      impact_and_risks?: string;
+      suspected_cause?: string;
+      fix_scope?: string;
+      verification_criteria?: string;
+      design_or_docs_links?: string;
+      prerequisites?: string;
+      problem_to_solve?: string;
+      brief_solution?: string;
+      risks?: string;
+      approvers?: string;
+      project_participants?: string;
+      acceptance_criteria?: string;
+      useful_links?: string;
     }
-    Rules for missing_details:
-    - missing_details must contain only exact field names from "Fixed follow-up fields" of the current task_type
-    - Remove a field from missing_details when the user provides enough information for it
-    - Do not invent new missing_details names and do not rephrase fixed field names
-    - If the user provides information for a fixed follow-up field, include it in description using the same human-readable field name
+    Rules for task-type fields:
+    - Fill or update only exact JSON keys listed in the current task_type template
+    - Do not invent unknown fields and do not return missing_details
+    - Keep description as plain text and do not move task-type fields into description
     Rules for due_date:
     - Keep due_date unchanged unless the user explicitly asks to change or remove the deadline
     - When the user gives a new explicit deadline, return due_date in YYYY-MM-DD
-    - If the user asks to remove the deadline, set due_date to an empty string and add "срок" to missing_details only if it is a fixed follow-up field for the current task_type
+    - If the user asks to remove the deadline, set due_date to an empty string
     Rules for selected_links:
     - Keep selected_links unchanged unless the user explicitly asks to remove or adjust a link
     - Do not invent new links
@@ -134,7 +170,7 @@ openrouter:
       "assignee_note": "",
       "labels": ["backend", "bug"],
       "task_type": "bug",
-      "missing_details": ["окружение"],
+      "verification_criteria": "Проверка проходит без ошибок.",
       "selected_links": [{"url": "https://example.com/logs", "role": "logs", "reason": "логи ошибки авторизации"}]
     }
     Current task:
