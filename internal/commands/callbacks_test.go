@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/user/telegram-bot/internal/db"
+	"github.com/user/telegram-bot/internal/taskfields"
+	"github.com/user/telegram-bot/internal/tasklinks"
 	"github.com/user/telegram-bot/internal/todoist"
 )
 
@@ -31,14 +33,21 @@ func TestCallbackHandler_HandleCallback_ParsesSessionIDCorrectly(t *testing.T) {
 		TaskType:       sql.NullString{String: "bug", Valid: true},
 		Labels:         db.StringSlice{"backend", "urgent"},
 		MissingDetails: db.StringSlice{"steps"},
-		AssigneeNote:   sql.NullString{String: "@ivan", Valid: true},
-		UpdatedAt:      time.Now(),
+		SelectedLinks: tasklinks.TaskLinkSlice{
+			{URL: "https://logs.example.com/incident-1", Role: "logs", Reason: "логи ошибки"},
+		},
+		AssigneeNote: sql.NullString{String: "@ivan", Valid: true},
+		Fields: taskfields.TaskFields{
+			WhatIsBroken:         "Не открывается форма.",
+			VerificationCriteria: "Форма открывается без ошибки.",
+		},
+		UpdatedAt: time.Now(),
 	}, nil)
 	mockDB.On("GetTodoistProjectID", mock.Anything, chatID).Return("project123", nil)
 	mockTodoist.On("CreateTask", mock.Anything, mock.MatchedBy(func(task *todoist.TaskRequest) bool {
 		return task != nil &&
 			task.Content == "Test Task" &&
-			task.Description == "Test Description" &&
+			task.Description == "## Описание\nTest Description\n\n## Детали задачи\n- **Что сломано:** Не открывается форма.\n- **Критерии проверки:** Форма открывается без ошибки.\n\n## Полезные материалы\n- **logs:** https://logs.example.com/incident-1 — логи ошибки" &&
 			task.ProjectID == "project123" &&
 			task.Priority == 3 &&
 			task.DueDate == "2026-04-01" &&
@@ -54,6 +63,7 @@ func TestCallbackHandler_HandleCallback_ParsesSessionIDCorrectly(t *testing.T) {
 		return task.SessionID == sessionID &&
 			task.TaskType.String == "bug" &&
 			len(task.Labels) == 2 &&
+			len(task.SelectedLinks) == 1 &&
 			task.AssigneeNote.String == "@ivan"
 	}), "todoist123", mock.Anything).Return(nil)
 	mockDB.On("CloseSession", mock.Anything, chatID).Return(nil)

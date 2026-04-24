@@ -9,38 +9,44 @@ import (
 	"strings"
 
 	"github.com/user/telegram-bot/internal/httpclient"
+	"github.com/user/telegram-bot/internal/taskfields"
+	"github.com/user/telegram-bot/internal/tasklinks"
 )
 
 // Client defines the interface for interacting with AI models
 type Client interface {
-	AnalyzeDiscussion(ctx context.Context, messages []string) (*AnalyzedTask, error)
+	AnalyzeLinks(ctx context.Context, messages []string, candidates []tasklinks.LinkCandidate) ([]tasklinks.TaskLink, error)
+	AnalyzeDiscussion(ctx context.Context, messages []string, selectedLinks []tasklinks.TaskLink) (*AnalyzedTask, error)
 	EditTask(ctx context.Context, task *AnalyzedTask, userFeedback string) (*AnalyzedTask, error)
 }
 
 // AnalyzedTask represents the structured task from AI analysis
 type AnalyzedTask struct {
-	Title          string   `json:"title"`
-	Description    string   `json:"description"`
-	DueDate        string   `json:"due_date"`
-	Priority       int      `json:"priority"`
-	PriorityText   string   `json:"priority_text,omitempty"`
-	AssigneeNote   string   `json:"assignee_note,omitempty"`
-	Labels         []string `json:"labels,omitempty"`
-	TaskType       string   `json:"task_type,omitempty"`
-	MissingDetails []string `json:"missing_details,omitempty"`
+	Title          string               `json:"title"`
+	Description    string               `json:"description"`
+	DueDate        string               `json:"due_date"`
+	Priority       int                  `json:"priority"`
+	PriorityText   string               `json:"priority_text,omitempty"`
+	AssigneeNote   string               `json:"assignee_note,omitempty"`
+	Labels         []string             `json:"labels,omitempty"`
+	TaskType       string               `json:"task_type,omitempty"`
+	MissingDetails []string             `json:"-"`
+	SelectedLinks  []tasklinks.TaskLink `json:"selected_links,omitempty"`
+	taskfields.TaskFields
 }
 
 func (t *AnalyzedTask) UnmarshalJSON(data []byte) error {
 	type analyzedTaskAlias struct {
-		Title          string   `json:"title"`
-		Description    string   `json:"description"`
-		DueDate        string   `json:"due_date"`
-		Priority       any      `json:"priority"`
-		PriorityText   string   `json:"priority_text,omitempty"`
-		AssigneeNote   string   `json:"assignee_note,omitempty"`
-		Labels         []string `json:"labels,omitempty"`
-		TaskType       string   `json:"task_type,omitempty"`
-		MissingDetails []string `json:"missing_details,omitempty"`
+		Title         string               `json:"title"`
+		Description   string               `json:"description"`
+		DueDate       string               `json:"due_date"`
+		Priority      any                  `json:"priority"`
+		PriorityText  string               `json:"priority_text,omitempty"`
+		AssigneeNote  string               `json:"assignee_note,omitempty"`
+		Labels        []string             `json:"labels,omitempty"`
+		TaskType      string               `json:"task_type,omitempty"`
+		SelectedLinks []tasklinks.TaskLink `json:"selected_links,omitempty"`
+		taskfields.TaskFields
 	}
 
 	var raw analyzedTaskAlias
@@ -61,7 +67,8 @@ func (t *AnalyzedTask) UnmarshalJSON(data []byte) error {
 	t.AssigneeNote = raw.AssigneeNote
 	t.Labels = raw.Labels
 	t.TaskType = raw.TaskType
-	t.MissingDetails = raw.MissingDetails
+	t.SelectedLinks = raw.SelectedLinks
+	t.TaskFields = raw.TaskFields
 
 	return nil
 }
@@ -100,12 +107,23 @@ func parsePriorityValue(value any) (int, error) {
 	}
 }
 
+func isKnownTaskField(key string) bool {
+	switch key {
+	case "title", "description", "due_date", "priority", "priority_text",
+		"assignee_note", "labels", "task_type", "selected_links":
+		return true
+	default:
+		return taskfields.IsKnownKey(key)
+	}
+}
+
 // AIClient клиент для работы с OpenRouter AI
 type AIClient struct {
 	httpClient          *httpclient.Client
 	model               string
 	createTaskPrompt    string
 	editTaskPrompt      string
+	analyzeLinksPrompt  string
 	taskTemplates       []TaskTemplate
 	taskTemplatesPrompt string
 }
@@ -142,6 +160,7 @@ func NewClient(config *httpclient.ClientConfig) (Client, error) {
 		model:               model,
 		createTaskPrompt:    aiSettings.CreateTaskPrompt,
 		editTaskPrompt:      aiSettings.EditTaskPrompt,
+		analyzeLinksPrompt:  aiSettings.AnalyzeLinksPrompt,
 		taskTemplates:       taskTemplates,
 		taskTemplatesPrompt: BuildTaskTemplatesPromptSection(taskTemplates),
 	}, nil
@@ -183,15 +202,63 @@ type OpenRouterUsage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
+func (c *AIClient) AnalyzeLinks(ctx context.Context, messages []string, candidates []tasklinks.LinkCandidate) ([]tasklinks.TaskLink, error) {
+	if len(candidates) == 0 {
+		return []tasklinks.TaskLink{}, nil
+	}
+
+	requestPayload, err := json.MarshalIndent(struct {
+		Messages   []string                  `json:"messages"`
+		Candidates []tasklinks.LinkCandidate `json:"candidates"`
+	}{
+		Messages:   messages,
+		Candidates: candidates,
+	}, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal link candidates: %w", err)
+	}
+
+	fullPrompt := c.analyzeLinksPrompt + "\n\nInput:\n" + string(requestPayload)
+
+	request := OpenRouterRequest{
+		Model: c.model,
+		Messages: []OpenRouterMessage{
+			{
+				Role:    "user",
+				Content: fullPrompt,
+			},
+		},
+		Stream: false,
+		Options: &OpenRouterOptions{
+			Temperature: 0.2,
+			MaxTokens:   1200,
+			TopP:        0.9,
+		},
+	}
+
+	var response OpenRouterResponse
+	err = c.httpClient.Post(ctx, "chat/completions", request, &response)
+	if err != nil {
+		return nil, fmt.Errorf("OpenRouter API error: %w", err)
+	}
+
+	return c.parseLinkAnalysisResponse(&response, candidates)
+}
+
 // AnalyzeDiscussion анализирует сообщения используя OpenRouter AI
-func (c *AIClient) AnalyzeDiscussion(ctx context.Context, messages []string) (*AnalyzedTask, error) {
+func (c *AIClient) AnalyzeDiscussion(ctx context.Context, messages []string, selectedLinks []tasklinks.TaskLink) (*AnalyzedTask, error) {
 	if len(messages) == 0 {
 		return nil, fmt.Errorf("no messages to analyze")
 	}
 
 	discussionText := strings.Join(messages, "\n")
+	selectedLinksJSON, err := json.MarshalIndent(selectedLinks, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal selected links: %w", err)
+	}
 	fullPrompt := c.createTaskPrompt +
 		"\n\n" + c.taskTemplatesPrompt +
+		"\n\nSelected materials. Use these as task materials, but do not decide link usefulness again:\n" + string(selectedLinksJSON) +
 		"\n\nДиалог для анализа:\n" + discussionText +
 		"\n\nОтвет в JSON формате:"
 
@@ -212,7 +279,7 @@ func (c *AIClient) AnalyzeDiscussion(ctx context.Context, messages []string) (*A
 	}
 
 	var response OpenRouterResponse
-	err := c.httpClient.Post(ctx, "chat/completions", request, &response)
+	err = c.httpClient.Post(ctx, "chat/completions", request, &response)
 	if err != nil {
 		return nil, fmt.Errorf("OpenRouter API error: %w", err)
 	}
@@ -289,6 +356,30 @@ func (c *AIClient) parseOpenRouterResponse(response *OpenRouterResponse) (*Analy
 	return c.validateAndCompleteTask(&task), nil
 }
 
+func (c *AIClient) parseLinkAnalysisResponse(response *OpenRouterResponse, candidates []tasklinks.LinkCandidate) ([]tasklinks.TaskLink, error) {
+	if len(response.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+
+	text := response.Choices[0].Message.Content
+	log.Printf("OpenRouter raw link response: %s", text)
+
+	jsonStart := strings.Index(text, "{")
+	jsonEnd := strings.LastIndex(text, "}")
+	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
+		return nil, fmt.Errorf("no valid JSON found in link response")
+	}
+
+	var payload struct {
+		Links []tasklinks.TaskLink `json:"links"`
+	}
+	if err := json.Unmarshal([]byte(text[jsonStart:jsonEnd+1]), &payload); err != nil {
+		return nil, fmt.Errorf("failed to parse link response: %w", err)
+	}
+
+	return tasklinks.NormalizeSelectedLinks(candidates, payload.Links), nil
+}
+
 // validateAndCompleteTask валидирует и заполняет значения по умолчанию
 func (c *AIClient) validateAndCompleteTask(task *AnalyzedTask) *AnalyzedTask {
 	if task.Title == "" {
@@ -323,10 +414,18 @@ func (c *AIClient) validateAndCompleteTask(task *AnalyzedTask) *AnalyzedTask {
 	}
 
 	task.TaskType = normalizeTaskType(task.TaskType)
+	task.TaskFields = task.TaskFields.Clean()
 
-	if task.MissingDetails == nil {
-		task.MissingDetails = []string{}
+	if task.SelectedLinks == nil {
+		task.SelectedLinks = []tasklinks.TaskLink{}
+	} else {
+		candidates := make([]tasklinks.LinkCandidate, 0, len(task.SelectedLinks))
+		for _, link := range task.SelectedLinks {
+			candidates = append(candidates, tasklinks.LinkCandidate{URL: link.URL})
+		}
+		task.SelectedLinks = tasklinks.NormalizeSelectedLinks(candidates, task.SelectedLinks)
 	}
+	task.MissingDetails = c.missingDetailsForTask(task)
 
 	log.Printf("Parsed task: Title=%s, Priority=%d, Due=%s",
 		task.Title, task.Priority, task.DueDate)
@@ -349,4 +448,54 @@ func normalizeTaskType(taskType string) string {
 	default:
 		return taskType
 	}
+}
+
+func (c *AIClient) missingDetailsForTask(task *AnalyzedTask) []string {
+	if task == nil {
+		return []string{}
+	}
+
+	fields := c.fieldsForType(task.TaskType)
+	if len(fields) == 0 {
+		return []string{}
+	}
+
+	result := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if isFieldFilled(task, field.Key) {
+			continue
+		}
+		label := taskfields.LowerLabelForKey(field.Key)
+		if label == "" {
+			label = strings.ToLower(strings.TrimSpace(field.Label))
+		}
+		if label != "" {
+			result = append(result, label)
+		}
+	}
+	return result
+}
+
+func isFieldFilled(task *AnalyzedTask, key string) bool {
+	switch strings.TrimSpace(key) {
+	case taskfields.DueDate:
+		return strings.TrimSpace(task.DueDate) != ""
+	case taskfields.SelectedLinks:
+		return len(task.SelectedLinks) > 0
+	case taskfields.DesignOrDocsLinks, taskfields.UsefulLinks:
+		return task.TaskFields.Value(key) != "" || len(task.SelectedLinks) > 0
+	default:
+		return task.TaskFields.Value(key) != ""
+	}
+}
+
+func (c *AIClient) fieldsForType(taskType string) []taskfields.FieldDefinition {
+	taskType = normalizeTaskType(taskType)
+	for _, template := range c.taskTemplates {
+		if template.Type == taskType {
+			return template.Fields
+		}
+	}
+
+	return nil
 }

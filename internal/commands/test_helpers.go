@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/db"
+	"github.com/user/telegram-bot/internal/taskfields"
+	"github.com/user/telegram-bot/internal/tasklinks"
 )
 
 // CreateCommandMessage is a helper function to create a Telegram message with a command
@@ -91,8 +93,8 @@ func (m *MockDBManager) CloseSession(ctx context.Context, chatID int64) error {
 	return args.Error(0)
 }
 
-func (m *MockDBManager) SaveMessage(ctx context.Context, chatID int64, messageID int, userID int64, username, text string) error {
-	args := m.Called(ctx, chatID, messageID, userID, username, text)
+func (m *MockDBManager) SaveMessage(ctx context.Context, chatID int64, messageID int, userID int64, username, text string, links []tasklinks.TaskLink) error {
+	args := m.Called(ctx, chatID, messageID, userID, username, text, links)
 	return args.Error(0)
 }
 
@@ -101,8 +103,8 @@ func (m *MockDBManager) GetSessionMessages(ctx context.Context, sessionID int) (
 	return args.Get(0).([]db.Message), args.Error(1)
 }
 
-func (m *MockDBManager) SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, taskType string, labels, missingDetails []string, assigneeNote string) error {
-	args := m.Called(ctx, sessionID, title, description, dueISO, priority, taskType, labels, missingDetails, assigneeNote)
+func (m *MockDBManager) SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, taskType string, labels, missingDetails []string, selectedLinks []tasklinks.TaskLink, assigneeNote string, fields taskfields.TaskFields) error {
+	args := m.Called(ctx, sessionID, title, description, dueISO, priority, taskType, labels, missingDetails, selectedLinks, assigneeNote, fields)
 	return args.Error(0)
 }
 
@@ -183,8 +185,16 @@ type AIClientMock struct {
 	mock.Mock
 }
 
-func (m *AIClientMock) AnalyzeDiscussion(ctx context.Context, messages []string) (*ai.AnalyzedTask, error) {
-	args := m.Called(ctx, messages)
+func (m *AIClientMock) AnalyzeLinks(ctx context.Context, messages []string, candidates []tasklinks.LinkCandidate) ([]tasklinks.TaskLink, error) {
+	args := m.Called(ctx, messages, candidates)
+	if v := args.Get(0); v != nil {
+		return v.([]tasklinks.TaskLink), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *AIClientMock) AnalyzeDiscussion(ctx context.Context, messages []string, selectedLinks []tasklinks.TaskLink) (*ai.AnalyzedTask, error) {
+	args := m.Called(ctx, messages, selectedLinks)
 	if v := args.Get(0); v != nil {
 		return v.(*ai.AnalyzedTask), args.Error(1)
 	}
@@ -208,7 +218,7 @@ func ConfigureClientMock(m *AIClientMock) *AIClientMockMockHelper {
 }
 
 func (h *AIClientMockMockHelper) AnalyzeDiscussionExact(msgs []string, res *ai.AnalyzedTask, err error) *AIClientMockMockHelper {
-	h.m.On("AnalyzeDiscussion", mock.Anything, msgs).Return(res, err)
+	h.m.On("AnalyzeDiscussion", mock.Anything, msgs, mock.Anything).Return(res, err)
 	return h
 }
 

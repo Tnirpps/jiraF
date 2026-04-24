@@ -173,7 +173,7 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 
 	todoistRequest := &todoist.TaskRequest{
 		Content:     task.Title.String,
-		Description: task.Description.String,
+		Description: BuildTodoistDescription(task.Description.String, task.Fields, task.SelectedLinks),
 		ProjectID:   projectID,
 		Priority:    int(task.Priority.Int32),
 		DueDate:     task.DueISO.String,
@@ -207,6 +207,7 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 	messageText := fmt.Sprintf("✅ **Задача создана**: [%s](%s)", task.Title.String, taskURL)
 	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, messageText)
 	msg.ParseMode = "Markdown"
+	msg.DisableWebPagePreview = true
 
 	return &CallbackResponse{
 		CallbackConfig:  &callbackCfg,

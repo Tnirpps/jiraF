@@ -1,14 +1,36 @@
 openrouter:
   model: openai/gpt-4o-mini
   task_templates_dir: configs/task_templates
+  analyze_links_prompt: |-
+    You are a task assistant. Select only links that are useful materials for creating, understanding, implementing, or verifying the task.
+    Return only raw JSON:
+    {
+      "links": [
+        {
+          "url": "one of input URLs",
+          "role": "logs | metrics | docs | design | chat | other",
+          "reason": "brief Russian phrase, 4-8 words, why this link is useful"
+        }
+      ]
+    }
+    Rules:
+    - Use only URLs from the input candidates.
+    - Do not fetch or assume page contents.
+    - Select at most 10 links.
+    - Keep reason compact: 4-8 words, no long sentences.
+    - If no link is useful, return {"links":[]}.
   create_task_prompt: |-
     You are a task management assistant. Analyze the dialog and extract information for a Todoist task.
+
+    Goal:
+    Create a useful draft task from the discussion. Prefer a practical, reviewable task over a literal transcript.
+
     Response requirements:
-    1. Response must be in JSON format
+    1. Response must be a single raw JSON object
     2. Use Russian language for text values
-    3. Choose the single best task template from the available templates below
+    3. Choose the single best task_type from the available templates below
     4. Required fields: title, description, priority, task_type
-    5. Optional fields: due_date, assignee_note, labels, missing_details
+    5. Optional fields: due_date, assignee_note, labels, selected_links, and task-type fields listed in the chosen template
     6. Return only a raw JSON object, without markdown fences or comments
     Type contract:
     type TaskPayload = {
@@ -19,33 +41,71 @@ openrouter:
       assignee_note?: string;
       labels?: string[];
       task_type: string;
-      missing_details?: string[];
+      selected_links?: { url: string; role: string; reason: string }[];
+      task_context?: string;
+      what_to_do?: string;
+      constraints_and_dependencies?: string;
+      readiness_criteria?: string;
+      what_is_broken?: string;
+      reproduction_steps?: string;
+      expected_behavior?: string;
+      actual_behavior?: string;
+      environment?: string;
+      impact_and_risks?: string;
+      suspected_cause?: string;
+      fix_scope?: string;
+      verification_criteria?: string;
+      design_or_docs_links?: string;
+      prerequisites?: string;
+      problem_to_solve?: string;
+      brief_solution?: string;
+      risks?: string;
+      approvers?: string;
+      project_participants?: string;
+      acceptance_criteria?: string;
+      useful_links?: string;
     }
     JSON example:
     {
-      "title": "Brief, informative task title (max 100 characters)",
-      "description": "Detailed task description, including all important details from the discussion",
-      "due_date": "Due date in YYYY-MM-DD format, or empty string if unknown",
+      "title": "Исправить ошибку авторизации в Telegram-боте",
+      "description": "Пользователи не могут завершить авторизацию после обновления конфигурации. Нужно проверить обработку токена, исправить ошибку и добавить проверку сценария, чтобы авторизация проходила без сбоя.",
+      "due_date": "2026-04-24",
       "priority": 3,
-      "assignee_note": "Short text note about the executor or responsible person, or empty string",
-      "labels": ["list", "of", "relevant", "tags"],
-      "task_type": "template type slug",
-      "missing_details": ["short list of useful details missing from discussion"]
+      "assignee_note": "",
+      "labels": ["backend", "bug"],
+      "task_type": "bug",
+      "what_is_broken": "Пользователи не могут завершить авторизацию после обновления конфигурации.",
+      "fix_scope": "Проверить обработку токена и исправить ошибку.",
+      "verification_criteria": "Авторизация проходит без сбоя.",
+      "selected_links": [{"url": "https://example.com/logs", "role": "logs", "reason": "логи ошибки авторизации"}]
     }
-    Rules:
-    - Title should be specific and informative
-    - Description should include all technical details mentioned in the discussion
+    Task content rules:
+    - Title should be specific, action-oriented, and no longer than 100 characters
+    - Description must be plain text only: no markdown headings, bullet lists, tables, or template section names
+    - Description should include only the useful task context and expected work from the discussion
+    - Do not copy the whole dialog into description; summarize decisions, context, constraints, useful facts, and acceptance criteria
+    - Do not duplicate structured fields in description: due_date, priority, assignee_note, labels, task_type, selected_links, and task-type fields belong only to their JSON fields
     - For priority: use 4 only for truly urgent tasks
     - assignee_note is optional; fill it only when the responsible person is clearly mentioned
     - Tags should be relevant to context (e.g.: frontend, backend, bug, feature, meeting)
     - task_type must exactly match one of the provided template slugs
-    - Use the templates not only to classify the task, but also to understand which details are useful to ask for
-    - due_date is nullable in the internal model; leave it empty if the dialog does not provide enough signal
-    - missing_details should contain only fields that were not clearly mentioned in the dialog but are important according to the chosen template
-    - missing_details should reflect the common task core and the chosen template requirements
-    - Prefer concrete missing fields from the template, not generic wording
-    - Keep missing_details short, typically 1 to 5 items
-    Dialog to analyze:
+    - Use the templates to classify the task and choose which task-type fields may be filled
+    - Fill only exact JSON keys listed in the chosen template when the dialog contains that information
+    - Do not invent unknown fields and do not return missing_details
+
+    Due date rules:
+    - Always try to fill due_date.
+    - Each dialog message has the format "username, [YYYY-MM-DD HH:mm:ss]: text"; use these timestamps as the source of "today" for relative dates.
+    - Use the latest message timestamp as the reference date in Europe/Moscow when resolving relative phrases such as "сегодня", "завтра", "во вторник", "к пятнице", "на следующей неделе".
+    - If the dialog explicitly mentions a deadline or target date, convert it to due_date in YYYY-MM-DD.
+    - If the dialog has no explicit deadline, estimate a reasonable due_date from task complexity, urgency, and task_type: urgent fixes 1-2 days, small normal tasks 2-4 days, medium tasks 5-10 days, epics or broad research 2-4 weeks.
+    - Prefer a realistic workday date when estimating; do not leave due_date empty only because the date was not directly discussed.
+    - Leave due_date empty only if the dialog is too ambiguous to understand what task should be done at all.
+    - Do not mention whether due_date is explicit or estimated in description; due_date belongs only to the due_date JSON field.
+
+    selected_links rules:
+    - selected_links must be copied from Selected materials; do not add, remove, or invent links
+    - If Selected materials is empty, return an empty selected_links array
   edit_task_prompt: |-
     You are a task management assistant. Edit an existing task based on user feedback.
     Requirements:
@@ -53,7 +113,7 @@ openrouter:
     2. Keep all other fields unchanged
     3. Response must be in JSON format
     4. Use Russian language for text values
-    5. Keep task_type aligned with the available templates and update missing_details if the user filled some gaps
+    5. Keep task_type aligned with the available templates and update task-type fields when the user filled some gaps
     6. Return only a raw JSON object, without markdown fences or comments
     Available templates:
     %s
@@ -66,18 +126,52 @@ openrouter:
       assignee_note?: string;
       labels?: string[];
       task_type: string;
-      missing_details?: string[];
+      selected_links?: { url: string; role: string; reason: string }[];
+      task_context?: string;
+      what_to_do?: string;
+      constraints_and_dependencies?: string;
+      readiness_criteria?: string;
+      what_is_broken?: string;
+      reproduction_steps?: string;
+      expected_behavior?: string;
+      actual_behavior?: string;
+      environment?: string;
+      impact_and_risks?: string;
+      suspected_cause?: string;
+      fix_scope?: string;
+      verification_criteria?: string;
+      design_or_docs_links?: string;
+      prerequisites?: string;
+      problem_to_solve?: string;
+      brief_solution?: string;
+      risks?: string;
+      approvers?: string;
+      project_participants?: string;
+      acceptance_criteria?: string;
+      useful_links?: string;
     }
+    Rules for task-type fields:
+    - Fill or update only exact JSON keys listed in the current task_type template
+    - Do not invent unknown fields and do not return missing_details
+    - Keep description as plain text and do not move task-type fields into description
+    Rules for due_date:
+    - Keep due_date unchanged unless the user explicitly asks to change or remove the deadline
+    - When the user gives a new explicit deadline, return due_date in YYYY-MM-DD
+    - If the user asks to remove the deadline, set due_date to an empty string
+    Rules for selected_links:
+    - Keep selected_links unchanged unless the user explicitly asks to remove or adjust a link
+    - Do not invent new links
     Task format is JSON:
     {
-      "title": "Brief, informative task title (max 100 characters)",
-      "description": "Detailed task description, including all important details from the discussion",
-      "due_date": "Due date in YYYY-MM-DD format, or empty string if unknown.",
+      "title": "Краткий информативный заголовок",
+      "description": "Актуальное описание задачи с учетом правки пользователя",
+      "due_date": "2026-04-24",
       "priority": 3,
-      "assignee_note": "Short text note about the executor or responsible person, or empty string",
-      "labels": ["list", "of", "relevant", "tags"],
-      "task_type": "template type slug",
-      "missing_details": ["short list of useful details still missing"]
+      "assignee_note": "",
+      "labels": ["backend", "bug"],
+      "task_type": "bug",
+      "verification_criteria": "Проверка проходит без ошибок.",
+      "selected_links": [{"url": "https://example.com/logs", "role": "logs", "reason": "логи ошибки авторизации"}]
     }
     Current task:
     %s
