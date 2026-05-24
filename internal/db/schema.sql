@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS draft_tasks (
     missing_details JSONB NOT NULL DEFAULT '[]'::jsonb,
     selected_links JSONB NOT NULL DEFAULT '[]'::jsonb,
     assignee_note TEXT,
+    assignee_todoist_id TEXT,
+    assignee_name TEXT,
+    assignee_email TEXT,
+    assignee_match_source TEXT,
     task_context TEXT,
     what_to_do TEXT,
     constraints_and_dependencies TEXT,
@@ -87,6 +91,10 @@ ALTER TABLE draft_tasks
     ADD COLUMN IF NOT EXISTS missing_details JSONB NOT NULL DEFAULT '[]'::jsonb,
     ADD COLUMN IF NOT EXISTS selected_links JSONB NOT NULL DEFAULT '[]'::jsonb,
     ADD COLUMN IF NOT EXISTS assignee_note TEXT,
+    ADD COLUMN IF NOT EXISTS assignee_todoist_id TEXT,
+    ADD COLUMN IF NOT EXISTS assignee_name TEXT,
+    ADD COLUMN IF NOT EXISTS assignee_email TEXT,
+    ADD COLUMN IF NOT EXISTS assignee_match_source TEXT,
     ADD COLUMN IF NOT EXISTS task_context TEXT,
     ADD COLUMN IF NOT EXISTS what_to_do TEXT,
     ADD COLUMN IF NOT EXISTS constraints_and_dependencies TEXT,
@@ -124,6 +132,10 @@ CREATE TABLE IF NOT EXISTS created_tasks (
     labels JSONB NOT NULL DEFAULT '[]'::jsonb,
     selected_links JSONB NOT NULL DEFAULT '[]'::jsonb,
     assignee_note TEXT,
+    assignee_todoist_id TEXT,
+    assignee_name TEXT,
+    assignee_email TEXT,
+    assignee_match_source TEXT,
     task_context TEXT,
     what_to_do TEXT,
     constraints_and_dependencies TEXT,
@@ -159,6 +171,10 @@ ALTER TABLE created_tasks
     ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb,
     ADD COLUMN IF NOT EXISTS selected_links JSONB NOT NULL DEFAULT '[]'::jsonb,
     ADD COLUMN IF NOT EXISTS assignee_note TEXT,
+    ADD COLUMN IF NOT EXISTS assignee_todoist_id TEXT,
+    ADD COLUMN IF NOT EXISTS assignee_name TEXT,
+    ADD COLUMN IF NOT EXISTS assignee_email TEXT,
+    ADD COLUMN IF NOT EXISTS assignee_match_source TEXT,
     ADD COLUMN IF NOT EXISTS task_context TEXT,
     ADD COLUMN IF NOT EXISTS what_to_do TEXT,
     ADD COLUMN IF NOT EXISTS constraints_and_dependencies TEXT,
@@ -191,3 +207,17 @@ CREATE TABLE IF NOT EXISTS audit_edits (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS audit_edits_session_id_idx ON audit_edits(session_id);
+
+CREATE TABLE IF NOT EXISTS assignee_mappings (
+    chat_id BIGINT NOT NULL REFERENCES chats(id),
+    todoist_project_id TEXT NOT NULL,
+    alias_raw TEXT NOT NULL,
+    alias_normalized TEXT NOT NULL,
+    todoist_user_id TEXT NOT NULL,
+    todoist_user_name TEXT,
+    todoist_user_email TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (chat_id, todoist_project_id, alias_normalized)
+);
+CREATE INDEX IF NOT EXISTS assignee_mappings_project_idx ON assignee_mappings(chat_id, todoist_project_id);

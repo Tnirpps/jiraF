@@ -2,14 +2,20 @@ package bot
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/user/telegram-bot/internal/ai"
+	"github.com/user/telegram-bot/internal/assignee"
 	"github.com/user/telegram-bot/internal/commands"
+	"github.com/user/telegram-bot/internal/db"
 	"github.com/user/telegram-bot/internal/tasklinks"
 	"github.com/user/telegram-bot/internal/todoist"
 )
@@ -27,6 +33,9 @@ type Bot struct {
 	// Track edit sessions
 	editSessions map[int64]string // map[botMessageID]sessionID
 	editMutex    sync.RWMutex
+
+	assigneeUploadSessions map[int64]string // map[botMessageID]"chatID:projectID"
+	assigneeUploadMutex    sync.RWMutex
 
 	// Track the last bot message in a chat that requires a user action.
 	pendingActionMessages map[int64]int
@@ -57,6 +66,9 @@ func New(telegramToken string, dbManager commands.DBManager, aiClient ai.Client,
 	setProjectCmd := commands.NewSetProjectCommand(todoistClient, dbManager)
 	registry.Register(setProjectCmd)
 
+	setAssigneeMapCmd := commands.NewSetAssigneeMapCommand(dbManager)
+	registry.Register(setAssigneeMapCmd)
+
 	startDiscussionCmd := commands.NewStartDiscussionCommand(dbManager, todoistClient)
 	registry.Register(startDiscussionCmd)
 
@@ -71,15 +83,16 @@ func New(telegramToken string, dbManager commands.DBManager, aiClient ai.Client,
 	callbackHandler := commands.NewCallbackHandler(todoistClient, dbManager)
 
 	return &Bot{
-		api:                   api,
-		commandRegistry:       registry,
-		dbManager:             dbManager,
-		callbackHandler:       callbackHandler,
-		aiClient:              aiClient,
-		todoistClient:         todoistClient,
-		stopCh:                make(chan struct{}),
-		editSessions:          make(map[int64]string),
-		pendingActionMessages: make(map[int64]int),
+		api:                    api,
+		commandRegistry:        registry,
+		dbManager:              dbManager,
+		callbackHandler:        callbackHandler,
+		aiClient:               aiClient,
+		todoistClient:          todoistClient,
+		stopCh:                 make(chan struct{}),
+		editSessions:           make(map[int64]string),
+		assigneeUploadSessions: make(map[int64]string),
+		pendingActionMessages:  make(map[int64]int),
 	}, nil
 }
 
@@ -177,11 +190,12 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 		} else if callbackType != commands.CallbackEdit {
 			// Send a confirmation message for non-edit callbacks
 			var text string
-			if callbackType == commands.CallbackConfirm {
+			switch callbackType {
+			case commands.CallbackConfirm:
 				text = "✅ Задача успешно создана"
-			} else if callbackType == commands.CallbackCancel {
+			case commands.CallbackCancel:
 				text = "❌ Создание задачи отменено. Можете продолжать обсуждение"
-			} else {
+			default:
 				// Unknown callback type
 				text = "✅ Создание задачи отменено, продолжайте обсуждение"
 			}
@@ -199,17 +213,17 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	log.Printf("[%s] %s", message.From.UserName, message.Text)
 
-	if message.Text != "" && !message.IsCommand() {
-		if b.handleButtonText(message) {
-			return
-		}
-	}
-
-	// Check if this is a reply to an edit request
 	if message.ReplyToMessage != nil && !message.IsCommand() {
 		replyToID := int64(message.ReplyToMessage.MessageID)
 
-		// Check if this is a reply to our edit instruction message
+		b.assigneeUploadMutex.RLock()
+		uploadContext, isUploadReply := b.assigneeUploadSessions[replyToID]
+		b.assigneeUploadMutex.RUnlock()
+		if isUploadReply {
+			b.handleAssigneeMapReply(message, uploadContext)
+			return
+		}
+
 		b.editMutex.RLock()
 		sessionID, isEditReply := b.editSessions[replyToID]
 		b.editMutex.RUnlock()
@@ -217,6 +231,12 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 		if isEditReply {
 			log.Printf("Got reply to edit request for session %s", sessionID)
 			b.handleEditReply(message, sessionID)
+			return
+		}
+	}
+
+	if message.Text != "" && !message.IsCommand() {
+		if b.handleButtonText(message) {
 			return
 		}
 	}
@@ -257,6 +277,13 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 		}
 
 		responseMsg := command.Execute(message)
+		if waitingCommand, ok := command.(commands.WaitingReplyCommand); ok {
+			replyKind, replyValue, shouldWait := waitingCommand.WaitingReply(message)
+			if shouldWait {
+				b.sendResponseWithTracking(responseMsg, replyKind, replyValue)
+				return
+			}
+		}
 		b.sendResponse(responseMsg)
 	}
 }
@@ -292,10 +319,20 @@ func (b *Bot) handleButtonText(message *tgbotapi.Message) bool {
 
 // sendResponse sends a message with debugging logs
 func (b *Bot) sendResponse(msgConfig *tgbotapi.MessageConfig) {
-	b.sendResponseWithOptions(msgConfig, false, "")
+	b.sendResponseWithTracking(msgConfig, "", "")
 }
 
 func (b *Bot) sendResponseWithOptions(msgConfig *tgbotapi.MessageConfig, waitingForReply bool, sessionID string) {
+	replyKind := ""
+	replyValue := ""
+	if waitingForReply && sessionID != "" {
+		replyKind = "edit"
+		replyValue = sessionID
+	}
+	b.sendResponseWithTracking(msgConfig, replyKind, replyValue)
+}
+
+func (b *Bot) sendResponseWithTracking(msgConfig *tgbotapi.MessageConfig, replyKind, replyValue string) {
 	if msgConfig == nil {
 		return
 	}
@@ -304,7 +341,7 @@ func (b *Bot) sendResponseWithOptions(msgConfig *tgbotapi.MessageConfig, waiting
 		msgConfig.DisableWebPagePreview = true
 	}
 
-	requiresAction := waitingForReply || hasInlineKeyboard(msgConfig)
+	requiresAction := replyKind != "" || hasInlineKeyboard(msgConfig)
 	if requiresAction {
 		b.deletePendingActionMessage(msgConfig.ChatID)
 	}
@@ -316,12 +353,18 @@ func (b *Bot) sendResponseWithOptions(msgConfig *tgbotapi.MessageConfig, waiting
 		return
 	}
 
-	if waitingForReply && sessionID != "" {
+	if replyKind == "edit" && replyValue != "" {
 		b.editMutex.Lock()
-		b.editSessions[int64(sent.MessageID)] = sessionID
+		b.editSessions[int64(sent.MessageID)] = replyValue
 		b.editMutex.Unlock()
 
-		log.Printf("Added edit session for message ID %d, session %s", sent.MessageID, sessionID)
+		log.Printf("Added edit session for message ID %d, session %s", sent.MessageID, replyValue)
+	}
+
+	if replyKind == commands.ReplyKindAssigneeMapUpload && replyValue != "" {
+		b.assigneeUploadMutex.Lock()
+		b.assigneeUploadSessions[int64(sent.MessageID)] = replyValue
+		b.assigneeUploadMutex.Unlock()
 	}
 
 	if requiresAction {
@@ -380,20 +423,55 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		return
 	}
 
-	err = b.dbManager.SaveDraftTask(
-		ctx,
-		sessionIDInt,
-		editedTask.Title,
-		editedTask.Description,
-		editedTask.DueDate,
-		editedTask.Priority,
-		editedTask.TaskType,
-		editedTask.Labels,
-		editedTask.MissingDetails,
-		editedTask.SelectedLinks,
-		editedTask.AssigneeNote,
-		editedTask.TaskFields,
-	)
+	projectID, err := b.dbManager.GetTodoistProjectID(ctx, message.Chat.ID)
+	if err != nil {
+		log.Printf("Error getting Todoist project for assignee resolution: %v", err)
+		b.sendMessage(message.Chat.ID, "❌ Error retrieving project settings")
+		return
+	}
+
+	resolvedAssignee := db.AssigneeSnapshot{}
+	if mappings, err := b.dbManager.GetAssigneeMappings(ctx, message.Chat.ID, projectID); err == nil && len(mappings) > 0 {
+		sessionMessages, messagesErr := b.dbManager.GetSessionMessages(ctx, sessionIDInt)
+		if messagesErr != nil {
+			log.Printf("Error retrieving session messages for assignee resolution: %v", messagesErr)
+		} else if collaborators, collaboratorsErr := b.todoistClient.GetProjectCollaborators(ctx, projectID); collaboratorsErr != nil {
+			log.Printf("Error retrieving Todoist collaborators: %v", collaboratorsErr)
+		} else {
+			messageTexts := buildMessageTexts(sessionMessages)
+			manualResolutionText := editedTask.AssigneeNote
+			preferManual := shouldPreferManualAssigneeResolution(message.Text, draftTask.AssigneeNote.String, editedTask.AssigneeNote)
+			if preferManual {
+				manualResolutionText = strings.TrimSpace(message.Text + "\n" + editedTask.AssigneeNote)
+			}
+			resolved, resolveErr := assignee.Resolve(ctx, b.aiClient, sessionMessages, messageTexts, manualResolutionText, mappings, collaborators, preferManual)
+			if resolveErr != nil {
+				log.Printf("Error resolving assignee: %v", resolveErr)
+			} else {
+				resolvedAssignee = db.AssigneeSnapshot{
+					TodoistID:   resolved.TodoistID,
+					Name:        resolved.Name,
+					Email:       resolved.Email,
+					MatchSource: resolved.MatchSource,
+				}
+			}
+		}
+	}
+
+	err = b.dbManager.SaveDraftTask(ctx, db.DraftTaskInput{
+		SessionID:      sessionIDInt,
+		Title:          editedTask.Title,
+		Description:    editedTask.Description,
+		DueISO:         editedTask.DueDate,
+		Priority:       editedTask.Priority,
+		TaskType:       editedTask.TaskType,
+		Labels:         editedTask.Labels,
+		MissingDetails: editedTask.MissingDetails,
+		SelectedLinks:  editedTask.SelectedLinks,
+		AssigneeNote:   editedTask.AssigneeNote,
+		Assignee:       resolvedAssignee,
+		Fields:         editedTask.TaskFields,
+	})
 	if err != nil {
 		log.Printf("Error saving edited task: %v", err)
 		b.sendMessage(message.Chat.ID, "❌ Error saving task")
@@ -405,6 +483,7 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 		editedTask,
 		editedTask.DueDate,
 		editedTask.AssigneeNote,
+		resolvedAssignee,
 		"Если хочешь, просто ответь на это сообщение и дополни это в задаче.",
 	)
 	responseText += "\n\n"
@@ -415,6 +494,135 @@ func (b *Bot) handleEditReply(message *tgbotapi.Message, sessionID string) {
 	msg.ReplyMarkup = commands.CreateInlineKeyboard(sessionIDInt)
 
 	b.sendResponse(&msg)
+}
+
+func buildMessageTexts(messages []db.Message) []string {
+	result := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		if msg.Text == "" {
+			continue
+		}
+		username := "Unknown Author"
+		if msg.Username.Valid && strings.TrimSpace(msg.Username.String) != "" {
+			username = msg.Username.String
+		}
+		result = append(result, fmt.Sprintf("%s, [%s]: %s", username, msg.Timestamp.Format("2006-01-02 15:04:05"), msg.Text))
+	}
+	return result
+}
+
+func (b *Bot) handleAssigneeMapReply(message *tgbotapi.Message, uploadContext string) {
+	b.assigneeUploadMutex.Lock()
+	delete(b.assigneeUploadSessions, int64(message.ReplyToMessage.MessageID))
+	b.assigneeUploadMutex.Unlock()
+
+	if message.Document == nil {
+		b.sendMessage(message.Chat.ID, "❌ Пришлите YAML-файл документом в ответ на сообщение бота.")
+		return
+	}
+
+	parts := strings.SplitN(uploadContext, ":", 2)
+	if len(parts) != 2 {
+		b.sendMessage(message.Chat.ID, "❌ Внутренняя ошибка загрузки маппинга.")
+		return
+	}
+	projectID := parts[1]
+
+	fileURL, err := b.api.GetFileDirectURL(message.Document.FileID)
+	if err != nil {
+		log.Printf("Error getting Telegram file URL: %v", err)
+		b.sendMessage(message.Chat.ID, "❌ Не удалось получить файл из Telegram.")
+		return
+	}
+
+	httpClient := &http.Client{Timeout: 20 * time.Second}
+	resp, err := httpClient.Get(fileURL)
+	if err != nil {
+		log.Printf("Error downloading Telegram file: %v", err)
+		b.sendMessage(message.Chat.ID, "❌ Не удалось скачать YAML-файл.")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b.sendMessage(message.Chat.ID, "❌ Telegram вернул ошибку при скачивании файла.")
+		return
+	}
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Error reading uploaded mapping file: %v", err)
+		b.sendMessage(message.Chat.ID, "❌ Не удалось прочитать YAML-файл.")
+		return
+	}
+
+	ctx := context.Background()
+	collaborators, err := b.todoistClient.GetProjectCollaborators(ctx, projectID)
+	if err != nil {
+		log.Printf("Error loading collaborators for mapping import: %v", err)
+		b.sendMessage(message.Chat.ID, "❌ Не удалось загрузить участников Todoist-проекта.")
+		return
+	}
+
+	mappings, summary, err := assignee.ParseAndValidateYAML(message.Chat.ID, projectID, raw, collaborators)
+	if err != nil {
+		b.sendMessage(message.Chat.ID, fmt.Sprintf("❌ Не удалось импортировать YAML-маппинг: %v", err))
+		return
+	}
+
+	if err := b.dbManager.ReplaceAssigneeMappings(ctx, message.Chat.ID, projectID, mappings); err != nil {
+		log.Printf("Error saving assignee mappings: %v", err)
+		b.sendMessage(message.Chat.ID, userFacingAssigneeMappingSaveError(err))
+		return
+	}
+
+	text := fmt.Sprintf("✅ Маппинг исполнителей обновлён.\nУчастников Todoist: %d\nЗагружено alias: %d", summary.CollaboratorsCount, summary.AliasesCount)
+	if len(summary.Warnings) > 0 {
+		log.Printf("Assignee mapping imported with warnings for chat=%d project=%s: %s", message.Chat.ID, projectID, strings.Join(summary.Warnings, "; "))
+	}
+	b.sendMessage(message.Chat.ID, text)
+}
+
+func shouldPreferManualAssigneeResolution(userFeedback, previousAssigneeNote, editedAssigneeNote string) bool {
+	feedback := strings.TrimSpace(strings.ToLower(userFeedback))
+	if feedback == "" {
+		return false
+	}
+
+	if strings.TrimSpace(editedAssigneeNote) != "" && editedAssigneeNote != previousAssigneeNote {
+		return true
+	}
+
+	manualPhrases := []string{
+		"исполнитель",
+		"ответственный",
+		"назначь",
+		"назначить",
+		"поставь",
+		"assignee",
+		"assign",
+		"responsible",
+	}
+	for _, phrase := range manualPhrases {
+		if strings.Contains(feedback, phrase) {
+			return true
+		}
+	}
+
+	return strings.Contains(userFeedback, "@")
+}
+
+func userFacingAssigneeMappingSaveError(err error) string {
+	if err == nil {
+		return "❌ Не удалось сохранить маппинг исполнителей."
+	}
+
+	errText := err.Error()
+	if strings.Contains(errText, "duplicate key value violates unique constraint") {
+		return "❌ Не удалось сохранить маппинг исполнителей: в YAML есть alias, которые после нормализации совпадают. Уберите дубли вроде `@user` и `user` для одного и того же ключа."
+	}
+
+	return fmt.Sprintf("❌ Не удалось сохранить маппинг исполнителей: %s.", errText)
 }
 
 func hasInlineKeyboard(msgConfig *tgbotapi.MessageConfig) bool {

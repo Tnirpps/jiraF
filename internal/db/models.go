@@ -64,35 +64,77 @@ func (m Message) GetText() string {
 }
 
 type DraftTask struct {
-	SessionID      int                     `db:"session_id"`
-	Title          sql.NullString          `db:"title"`
-	Description    sql.NullString          `db:"description"`
-	DueISO         sql.NullString          `db:"due_iso"`
-	Priority       sql.NullInt32           `db:"priority"`
-	TaskType       sql.NullString          `db:"task_type"`
-	Labels         StringSlice             `db:"labels"`
-	MissingDetails StringSlice             `db:"missing_details"`
-	SelectedLinks  tasklinks.TaskLinkSlice `db:"selected_links"`
-	AssigneeNote   sql.NullString          `db:"assignee_note"`
-	Fields         taskfields.TaskFields
-	UpdatedAt      time.Time `db:"updated_at"`
+	SessionID           int                     `db:"session_id"`
+	Title               sql.NullString          `db:"title"`
+	Description         sql.NullString          `db:"description"`
+	DueISO              sql.NullString          `db:"due_iso"`
+	Priority            sql.NullInt32           `db:"priority"`
+	TaskType            sql.NullString          `db:"task_type"`
+	Labels              StringSlice             `db:"labels"`
+	MissingDetails      StringSlice             `db:"missing_details"`
+	SelectedLinks       tasklinks.TaskLinkSlice `db:"selected_links"`
+	AssigneeNote        sql.NullString          `db:"assignee_note"`
+	AssigneeTodoistID   sql.NullString          `db:"assignee_todoist_id"`
+	AssigneeName        sql.NullString          `db:"assignee_name"`
+	AssigneeEmail       sql.NullString          `db:"assignee_email"`
+	AssigneeMatchSource sql.NullString          `db:"assignee_match_source"`
+	Fields              taskfields.TaskFields
+	UpdatedAt           time.Time `db:"updated_at"`
 }
 
 type CreatedTask struct {
-	ID            int                     `db:"id"`
-	SessionID     int                     `db:"session_id"`
-	TodoistTaskID string                  `db:"todoist_task_id"`
-	URL           string                  `db:"url"`
-	Title         sql.NullString          `db:"title"`
-	Description   sql.NullString          `db:"description"`
-	DueISO        sql.NullString          `db:"due_iso"`
-	Priority      sql.NullInt32           `db:"priority"`
-	TaskType      sql.NullString          `db:"task_type"`
-	Labels        StringSlice             `db:"labels"`
-	SelectedLinks tasklinks.TaskLinkSlice `db:"selected_links"`
-	AssigneeNote  sql.NullString          `db:"assignee_note"`
-	Fields        taskfields.TaskFields
-	CreatedAt     time.Time `db:"created_at"`
+	ID                  int                     `db:"id"`
+	SessionID           int                     `db:"session_id"`
+	TodoistTaskID       string                  `db:"todoist_task_id"`
+	URL                 string                  `db:"url"`
+	Title               sql.NullString          `db:"title"`
+	Description         sql.NullString          `db:"description"`
+	DueISO              sql.NullString          `db:"due_iso"`
+	Priority            sql.NullInt32           `db:"priority"`
+	TaskType            sql.NullString          `db:"task_type"`
+	Labels              StringSlice             `db:"labels"`
+	SelectedLinks       tasklinks.TaskLinkSlice `db:"selected_links"`
+	AssigneeNote        sql.NullString          `db:"assignee_note"`
+	AssigneeTodoistID   sql.NullString          `db:"assignee_todoist_id"`
+	AssigneeName        sql.NullString          `db:"assignee_name"`
+	AssigneeEmail       sql.NullString          `db:"assignee_email"`
+	AssigneeMatchSource sql.NullString          `db:"assignee_match_source"`
+	Fields              taskfields.TaskFields
+	CreatedAt           time.Time `db:"created_at"`
+}
+
+type AssigneeSnapshot struct {
+	TodoistID   string
+	Name        string
+	Email       string
+	MatchSource string
+}
+
+type DraftTaskInput struct {
+	SessionID      int
+	Title          string
+	Description    string
+	DueISO         string
+	Priority       int
+	TaskType       string
+	Labels         []string
+	MissingDetails []string
+	SelectedLinks  []tasklinks.TaskLink
+	AssigneeNote   string
+	Assignee       AssigneeSnapshot
+	Fields         taskfields.TaskFields
+}
+
+type AssigneeMapping struct {
+	ChatID           int64     `db:"chat_id"`
+	TodoistProjectID string    `db:"todoist_project_id"`
+	AliasRaw         string    `db:"alias_raw"`
+	AliasNormalized  string    `db:"alias_normalized"`
+	TodoistUserID    string    `db:"todoist_user_id"`
+	TodoistUserName  string    `db:"todoist_user_name"`
+	TodoistUserEmail string    `db:"todoist_user_email"`
+	CreatedAt        time.Time `db:"created_at"`
+	UpdatedAt        time.Time `db:"updated_at"`
 }
 
 type AuditEdit struct {

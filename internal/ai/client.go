@@ -18,6 +18,7 @@ type Client interface {
 	AnalyzeLinks(ctx context.Context, messages []string, candidates []tasklinks.LinkCandidate) ([]tasklinks.TaskLink, error)
 	AnalyzeDiscussion(ctx context.Context, messages []string, selectedLinks []tasklinks.TaskLink) (*AnalyzedTask, error)
 	EditTask(ctx context.Context, task *AnalyzedTask, userFeedback string) (*AnalyzedTask, error)
+	AnalyzeAssignee(ctx context.Context, messages []string, assigneeNote string, candidates []AssigneeCandidate) (*AssigneeSelection, error)
 }
 
 // AnalyzedTask represents the structured task from AI analysis
@@ -33,6 +34,19 @@ type AnalyzedTask struct {
 	MissingDetails []string             `json:"-"`
 	SelectedLinks  []tasklinks.TaskLink `json:"selected_links,omitempty"`
 	taskfields.TaskFields
+}
+
+type AssigneeCandidate struct {
+	TodoistUserID    string   `json:"todoist_user_id"`
+	TodoistUserName  string   `json:"todoist_user_name"`
+	TodoistUserEmail string   `json:"todoist_user_email"`
+	Aliases          []string `json:"aliases"`
+}
+
+type AssigneeSelection struct {
+	TodoistUserID string `json:"todoist_user_id"`
+	MatchedAlias  string `json:"matched_alias,omitempty"`
+	Reason        string `json:"reason,omitempty"`
 }
 
 func (t *AnalyzedTask) UnmarshalJSON(data []byte) error {
@@ -107,25 +121,16 @@ func parsePriorityValue(value any) (int, error) {
 	}
 }
 
-func isKnownTaskField(key string) bool {
-	switch key {
-	case "title", "description", "due_date", "priority", "priority_text",
-		"assignee_note", "labels", "task_type", "selected_links":
-		return true
-	default:
-		return taskfields.IsKnownKey(key)
-	}
-}
-
 // AIClient клиент для работы с OpenRouter AI
 type AIClient struct {
-	httpClient          *httpclient.Client
-	model               string
-	createTaskPrompt    string
-	editTaskPrompt      string
-	analyzeLinksPrompt  string
-	taskTemplates       []TaskTemplate
-	taskTemplatesPrompt string
+	httpClient            *httpclient.Client
+	model                 string
+	createTaskPrompt      string
+	editTaskPrompt        string
+	analyzeLinksPrompt    string
+	analyzeAssigneePrompt string
+	taskTemplates         []TaskTemplate
+	taskTemplatesPrompt   string
 }
 
 // NewClient создает новый AI клиент (OpenRouter)
@@ -147,7 +152,7 @@ func NewClient(config *httpclient.ClientConfig) (Client, error) {
 	// Получаем модель из env (или используем gpt-4o-mini по умолчанию)
 	model := os.Getenv("OPENROUTER_MODEL")
 	if model == "" {
-		model = "openai/gpt-4o-mini"
+		model = "qwen/qwen3.5-35b-a3b"
 	}
 
 	taskTemplates, err := LoadTaskTemplates(aiSettings.TaskTemplatesDir)
@@ -156,13 +161,14 @@ func NewClient(config *httpclient.ClientConfig) (Client, error) {
 	}
 
 	return &AIClient{
-		httpClient:          client,
-		model:               model,
-		createTaskPrompt:    aiSettings.CreateTaskPrompt,
-		editTaskPrompt:      aiSettings.EditTaskPrompt,
-		analyzeLinksPrompt:  aiSettings.AnalyzeLinksPrompt,
-		taskTemplates:       taskTemplates,
-		taskTemplatesPrompt: BuildTaskTemplatesPromptSection(taskTemplates),
+		httpClient:            client,
+		model:                 model,
+		createTaskPrompt:      aiSettings.CreateTaskPrompt,
+		editTaskPrompt:        aiSettings.EditTaskPrompt,
+		analyzeLinksPrompt:    aiSettings.AnalyzeLinksPrompt,
+		analyzeAssigneePrompt: aiSettings.AnalyzeAssigneePrompt,
+		taskTemplates:         taskTemplates,
+		taskTemplatesPrompt:   BuildTaskTemplatesPromptSection(taskTemplates),
 	}, nil
 }
 
@@ -330,6 +336,49 @@ func (c *AIClient) EditTask(ctx context.Context, task *AnalyzedTask, userFeedbac
 	return c.parseOpenRouterResponse(&response)
 }
 
+func (c *AIClient) AnalyzeAssignee(ctx context.Context, messages []string, assigneeNote string, candidates []AssigneeCandidate) (*AssigneeSelection, error) {
+	if len(candidates) == 0 {
+		return &AssigneeSelection{}, nil
+	}
+
+	requestPayload, err := json.MarshalIndent(struct {
+		Messages     []string            `json:"messages"`
+		AssigneeNote string              `json:"assignee_note"`
+		Candidates   []AssigneeCandidate `json:"candidates"`
+	}{
+		Messages:     messages,
+		AssigneeNote: assigneeNote,
+		Candidates:   candidates,
+	}, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal assignee candidates: %w", err)
+	}
+
+	fullPrompt := c.analyzeAssigneePrompt + "\n\nInput:\n" + string(requestPayload)
+	request := OpenRouterRequest{
+		Model: c.model,
+		Messages: []OpenRouterMessage{
+			{
+				Role:    "user",
+				Content: fullPrompt,
+			},
+		},
+		Stream: false,
+		Options: &OpenRouterOptions{
+			Temperature: 0.2,
+			MaxTokens:   900,
+			TopP:        0.9,
+		},
+	}
+
+	var response OpenRouterResponse
+	if err := c.httpClient.Post(ctx, "chat/completions", request, &response); err != nil {
+		return nil, fmt.Errorf("OpenRouter API error: %w", err)
+	}
+
+	return c.parseAssigneeAnalysisResponse(&response, candidates)
+}
+
 // parseOpenRouterResponse парсит ответ OpenRouter
 func (c *AIClient) parseOpenRouterResponse(response *OpenRouterResponse) (*AnalyzedTask, error) {
 	if len(response.Choices) == 0 {
@@ -378,6 +427,38 @@ func (c *AIClient) parseLinkAnalysisResponse(response *OpenRouterResponse, candi
 	}
 
 	return tasklinks.NormalizeSelectedLinks(candidates, payload.Links), nil
+}
+
+func (c *AIClient) parseAssigneeAnalysisResponse(response *OpenRouterResponse, candidates []AssigneeCandidate) (*AssigneeSelection, error) {
+	if len(response.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+
+	text := response.Choices[0].Message.Content
+	log.Printf("OpenRouter raw assignee response: %s", text)
+
+	jsonStart := strings.Index(text, "{")
+	jsonEnd := strings.LastIndex(text, "}")
+	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
+		return nil, fmt.Errorf("no valid JSON found in assignee response")
+	}
+
+	var payload AssigneeSelection
+	if err := json.Unmarshal([]byte(text[jsonStart:jsonEnd+1]), &payload); err != nil {
+		return nil, fmt.Errorf("failed to parse assignee response: %w", err)
+	}
+
+	if strings.TrimSpace(payload.TodoistUserID) == "" {
+		return &AssigneeSelection{}, nil
+	}
+
+	for _, candidate := range candidates {
+		if candidate.TodoistUserID == payload.TodoistUserID {
+			return &payload, nil
+		}
+	}
+
+	return &AssigneeSelection{}, nil
 }
 
 // validateAndCompleteTask валидирует и заполняет значения по умолчанию

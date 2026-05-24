@@ -30,6 +30,8 @@ func setupTestServer(t *testing.T) *httptest.Server {
 			handleGetTasks(t, w, r)
 		case r.Method == http.MethodGet && r.URL.Path == "/projects":
 			handleGetProjects(t, w, r)
+		case r.Method == http.MethodGet && r.URL.Path == "/projects/12345/collaborators":
+			handleGetProjectCollaborators(t, w, r)
 		case r.Method == http.MethodDelete && r.URL.Path == "/tasks/123":
 			w.WriteHeader(http.StatusNoContent)
 		default:
@@ -120,6 +122,19 @@ func handleGetProjects(t *testing.T, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(projects)
+}
+
+func handleGetProjectCollaborators(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	resp := CollaboratorsResponse{
+		Results: []Collaborator{
+			{ID: "user-1", Name: "Alice Doe", Email: "alice@example.com"},
+			{ID: "user-2", Name: "Bob Roe", Email: "bob@example.com"},
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
 }
 
 // createTestConfig creates a temporary configuration file from a template for testing
@@ -268,5 +283,27 @@ func TestTodoistClient_GetProjects(t *testing.T) {
 	}
 	if projects[0].ID != "12345" || projects[1].ID != "67890" {
 		t.Errorf("Incorrect project IDs")
+	}
+}
+
+func TestTodoistClient_GetProjectCollaborators(t *testing.T) {
+	server := setupTestServer(t)
+	defer server.Close()
+
+	configPath := createTestConfig(t, server.URL)
+	defer os.Remove(configPath)
+
+	client := newTestClient(t, configPath)
+
+	collaborators, err := client.GetProjectCollaborators(context.Background(), "12345")
+	if err != nil {
+		t.Fatalf("Error getting collaborators: %v", err)
+	}
+
+	if len(collaborators) != 2 {
+		t.Fatalf("Expected 2 collaborators, got %d", len(collaborators))
+	}
+	if collaborators[0].Email != "alice@example.com" {
+		t.Fatalf("Unexpected collaborator payload: %#v", collaborators[0])
 	}
 }

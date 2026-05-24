@@ -180,7 +180,7 @@ func TestTaskJSON_CapturesEpicAndTaskTemplateFields(t *testing.T) {
 
 func TestAIConfigFromEnv(t *testing.T) {
 	os.Setenv("OPENROUTER_API_KEY", "test_key_123")
-	os.Setenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+	os.Setenv("OPENROUTER_MODEL", "qwen/qwen3.5-35b-a3b")
 	os.Setenv("AI_PROVIDER", "openrouter")
 	defer func() {
 		os.Unsetenv("OPENROUTER_API_KEY")
@@ -194,8 +194,8 @@ func TestAIConfigFromEnv(t *testing.T) {
 	}
 
 	model := os.Getenv("OPENROUTER_MODEL")
-	if model != "openai/gpt-4o-mini" {
-		t.Errorf("OPENROUTER_MODEL mismatch: got %v, want %v", model, "openai/gpt-4o-mini")
+	if model != "qwen/qwen3.5-35b-a3b" {
+		t.Errorf("OPENROUTER_MODEL mismatch: got %v, want %v", model, "qwen/qwen3.5-35b-a3b")
 	}
 
 	provider := os.Getenv("AI_PROVIDER")

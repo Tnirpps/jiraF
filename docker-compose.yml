@@ -33,7 +33,7 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TODOIST_API_TOKEN=${TODOIST_API_TOKEN}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-openai/gpt-4o-mini}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-qwen/qwen3.5-35b-a3b}
       - AI_PROVIDER=${AI_PROVIDER:-openrouter}
       - DATABASE_URL=postgres://jiraf_user:jiraf_password@postgres:5432/jiraf_db?sslmode=disable
     volumes:

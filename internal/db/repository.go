@@ -417,20 +417,11 @@ func (m *Manager) GetSessionMessages(ctx context.Context, sessionID int) ([]Mess
 }
 
 // SaveDraftTask saves a draft task for a session
-func (m *Manager) SaveDraftTask(
-	ctx context.Context,
-	sessionID int,
-	title, description, dueISO string,
-	priority int,
-	taskType string,
-	labels, missingDetails []string,
-	selectedLinks []tasklinks.TaskLink,
-	assigneeNote string,
-	fields taskfields.TaskFields,
-) error {
+func (m *Manager) SaveDraftTask(ctx context.Context, input DraftTaskInput) error {
 	query := `
 		INSERT INTO draft_tasks (
 			session_id, title, description, due_iso, priority, task_type, labels, missing_details, selected_links, assignee_note,
+			assignee_todoist_id, assignee_name, assignee_email, assignee_match_source,
 			task_context, what_to_do, constraints_and_dependencies, readiness_criteria,
 			what_is_broken, reproduction_steps, expected_behavior, actual_behavior, environment, impact_and_risks, suspected_cause, fix_scope, verification_criteria,
 			design_or_docs_links, prerequisites, problem_to_solve, brief_solution, risks, approvers, project_participants, acceptance_criteria, useful_links,
@@ -438,33 +429,38 @@ func (m *Manager) SaveDraftTask(
 		)
 		VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32,
-			$33
+			$11, $12, $13, $14,
+			$15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
+			$29, $30, $31, $32, $33, $34, $35, $36, $37
 		)
 		ON CONFLICT (session_id) DO UPDATE
 		SET title = $2, description = $3, due_iso = $4, priority = $5, task_type = $6,
 		    labels = $7, missing_details = $8, selected_links = $9, assignee_note = $10,
-		    task_context = $11, what_to_do = $12, constraints_and_dependencies = $13, readiness_criteria = $14,
-		    what_is_broken = $15, reproduction_steps = $16, expected_behavior = $17, actual_behavior = $18, environment = $19,
-		    impact_and_risks = $20, suspected_cause = $21, fix_scope = $22, verification_criteria = $23,
-		    design_or_docs_links = $24, prerequisites = $25, problem_to_solve = $26, brief_solution = $27, risks = $28,
-		    approvers = $29, project_participants = $30, acceptance_criteria = $31, useful_links = $32,
-		    updated_at = $33
+		    assignee_todoist_id = $11, assignee_name = $12, assignee_email = $13, assignee_match_source = $14,
+		    task_context = $15, what_to_do = $16, constraints_and_dependencies = $17, readiness_criteria = $18,
+		    what_is_broken = $19, reproduction_steps = $20, expected_behavior = $21, actual_behavior = $22, environment = $23,
+		    impact_and_risks = $24, suspected_cause = $25, fix_scope = $26, verification_criteria = $27,
+		    design_or_docs_links = $28, prerequisites = $29, problem_to_solve = $30, brief_solution = $31, risks = $32,
+		    approvers = $33, project_participants = $34, acceptance_criteria = $35, useful_links = $36,
+		    updated_at = $37
 	`
 
-	fieldValues := nullableTaskFieldsFrom(fields).values()
+	fieldValues := nullableTaskFieldsFrom(input.Fields).values()
 	args := []any{
-		sessionID,
-		nullableString(title),
-		nullableString(description),
-		nullableString(dueISO),
-		sql.NullInt32{Int32: int32(priority), Valid: priority > 0},
-		nullableString(taskType),
-		StringSlice(labels),
-		StringSlice(missingDetails),
-		tasklinks.TaskLinkSlice(selectedLinks),
-		nullableString(assigneeNote),
+		input.SessionID,
+		nullableString(input.Title),
+		nullableString(input.Description),
+		nullableString(input.DueISO),
+		sql.NullInt32{Int32: int32(input.Priority), Valid: input.Priority > 0},
+		nullableString(input.TaskType),
+		StringSlice(input.Labels),
+		StringSlice(input.MissingDetails),
+		tasklinks.TaskLinkSlice(input.SelectedLinks),
+		nullableString(input.AssigneeNote),
+		nullableString(input.Assignee.TodoistID),
+		nullableString(input.Assignee.Name),
+		nullableString(input.Assignee.Email),
+		nullableString(input.Assignee.MatchSource),
 	}
 	args = append(args, fieldValues...)
 	args = append(args, time.Now())
@@ -480,6 +476,7 @@ func (m *Manager) SaveDraftTask(
 func (m *Manager) GetDraftTask(ctx context.Context, sessionID int) (DraftTask, error) {
 	const query = `
         SELECT session_id, title, description, due_iso, priority, task_type, labels, missing_details, selected_links, assignee_note,
+               assignee_todoist_id, assignee_name, assignee_email, assignee_match_source,
                task_context, what_to_do, constraints_and_dependencies, readiness_criteria,
                what_is_broken, reproduction_steps, expected_behavior, actual_behavior, environment, impact_and_risks, suspected_cause, fix_scope, verification_criteria,
                design_or_docs_links, prerequisites, problem_to_solve, brief_solution, risks, approvers, project_participants, acceptance_criteria, useful_links,
@@ -501,6 +498,10 @@ func (m *Manager) GetDraftTask(ctx context.Context, sessionID int) (DraftTask, e
 		&t.MissingDetails,
 		&t.SelectedLinks,
 		&t.AssigneeNote,
+		&t.AssigneeTodoistID,
+		&t.AssigneeName,
+		&t.AssigneeEmail,
+		&t.AssigneeMatchSource,
 	}
 	targets = append(targets, fields.scanTargets()...)
 	targets = append(targets, &t.UpdatedAt)
@@ -536,14 +537,16 @@ func (m *Manager) SaveCreatedTask(ctx context.Context, task DraftTask, todoistTa
 	query := `
 		INSERT INTO created_tasks (
 			session_id, todoist_task_id, url, title, description, due_iso, priority, task_type, labels, selected_links, assignee_note,
+			assignee_todoist_id, assignee_name, assignee_email, assignee_match_source,
 			task_context, what_to_do, constraints_and_dependencies, readiness_criteria,
 			what_is_broken, reproduction_steps, expected_behavior, actual_behavior, environment, impact_and_risks, suspected_cause, fix_scope, verification_criteria,
 			design_or_docs_links, prerequisites, problem_to_solve, brief_solution, risks, approvers, project_participants, acceptance_criteria, useful_links
 		)
 		VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-			$12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-			$25, $26, $27, $28, $29, $30, $31, $32, $33
+			$12, $13, $14, $15,
+			$16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
+			$29, $30, $31, $32, $33, $34, $35, $36, $37
 		)
 	`
 	args := []any{
@@ -558,6 +561,10 @@ func (m *Manager) SaveCreatedTask(ctx context.Context, task DraftTask, todoistTa
 		task.Labels,
 		task.SelectedLinks,
 		task.AssigneeNote,
+		task.AssigneeTodoistID,
+		task.AssigneeName,
+		task.AssigneeEmail,
+		task.AssigneeMatchSource,
 	}
 	args = append(args, nullableTaskFieldsFrom(task.Fields).values()...)
 	_, err := m.db.ExecContext(ctx, query, args...)
@@ -580,4 +587,87 @@ func (m *Manager) SaveAuditEdit(ctx context.Context, sessionID int, instructionT
 	}
 
 	return nil
+}
+
+func (m *Manager) ReplaceAssigneeMappings(ctx context.Context, chatID int64, projectID string, mappings []AssigneeMapping) error {
+	if err := m.EnsureChatExists(ctx, chatID); err != nil {
+		return err
+	}
+
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM assignee_mappings
+		WHERE chat_id = $1 AND todoist_project_id = $2
+	`, chatID, projectID); err != nil {
+		return fmt.Errorf("failed to clear assignee mappings: %w", err)
+	}
+
+	for _, mapping := range mappings {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO assignee_mappings (
+				chat_id, todoist_project_id, alias_raw, alias_normalized,
+				todoist_user_id, todoist_user_name, todoist_user_email, created_at, updated_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+		`,
+			chatID,
+			projectID,
+			mapping.AliasRaw,
+			mapping.AliasNormalized,
+			mapping.TodoistUserID,
+			mapping.TodoistUserName,
+			mapping.TodoistUserEmail,
+		); err != nil {
+			return fmt.Errorf("failed to insert assignee mapping: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit assignee mappings: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) GetAssigneeMappings(ctx context.Context, chatID int64, projectID string) ([]AssigneeMapping, error) {
+	rows, err := m.db.QueryContext(ctx, `
+		SELECT chat_id, todoist_project_id, alias_raw, alias_normalized,
+		       todoist_user_id, todoist_user_name, todoist_user_email, created_at, updated_at
+		FROM assignee_mappings
+		WHERE chat_id = $1 AND todoist_project_id = $2
+		ORDER BY todoist_user_id, alias_normalized
+	`, chatID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query assignee mappings: %w", err)
+	}
+	defer rows.Close()
+
+	var mappings []AssigneeMapping
+	for rows.Next() {
+		var mapping AssigneeMapping
+		if err := rows.Scan(
+			&mapping.ChatID,
+			&mapping.TodoistProjectID,
+			&mapping.AliasRaw,
+			&mapping.AliasNormalized,
+			&mapping.TodoistUserID,
+			&mapping.TodoistUserName,
+			&mapping.TodoistUserEmail,
+			&mapping.CreatedAt,
+			&mapping.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan assignee mapping: %w", err)
+		}
+		mappings = append(mappings, mapping)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate assignee mappings: %w", err)
+	}
+
+	return mappings, nil
 }
