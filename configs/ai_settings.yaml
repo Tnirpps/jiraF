@@ -1,5 +1,5 @@
 openrouter:
-  model: openai/gpt-4o-mini
+  model: qwen/qwen3.5-35b-a3b
   task_templates_dir: configs/task_templates
   analyze_links_prompt: |-
     You are a task assistant. Select only links that are useful materials for creating, understanding, implementing, or verifying the task.
@@ -19,6 +19,21 @@ openrouter:
     - Select at most 10 links.
     - Keep reason compact: 4-8 words, no long sentences.
     - If no link is useful, return {"links":[]}.
+  analyze_assignee_prompt: |-
+    You are a task assistant. Match the likely Todoist assignee for the task.
+    Return only raw JSON:
+    {
+      "todoist_user_id": "one of candidate todoist_user_id values or empty string",
+      "matched_alias": "brief alias from input or empty string",
+      "reason": "brief Russian phrase, 4-10 words"
+    }
+    Rules:
+    - Use only candidate users from the input.
+    - Use the discussion messages and assignee_note as evidence.
+    - Prefer explicit mentions of responsibility, direct mentions, and names that closely match candidate aliases.
+    - If you cannot confidently choose a single assignee, return an empty todoist_user_id.
+    - Do not invent aliases, IDs, or users.
+    - matched_alias must come from candidate aliases or discussion text.
   create_task_prompt: |-
     You are a task management assistant. Analyze the dialog and extract information for a Todoist task.
 

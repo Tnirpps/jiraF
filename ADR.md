@@ -32,7 +32,7 @@
 
 #### Telegram Bot Handler
 - **Long polling** через `GetUpdatesChan` с таймаутом 60 секунд (реализация в `internal/bot/bot.go`, метод `Start()`).
-- Команды: `/set_project`, `/start_discussion`, `/create_task`, `/cancel`, `/help`, `/start`.
+- Команды: `/set_project`, `/set_assignee_map`, `/start_discussion`, `/create_task`, `/cancel`, `/help`, `/start`.
 - При активной сессии сохраняет все текстовые сообщения в БД.
 - **Privacy mode**: бот видит сообщения в групповых чатах (требуется настройка через @BotFather).
 
@@ -51,9 +51,16 @@
 - `extract_title`: короткий заголовок на основе суммаризации от AI.
 - `extract_due`: RU-разговорные даты/время → нормализация в ISO (TZ=Europe/Moscow).
 - `extract_priority`: словарь → Todoist priority (1..4).
-- `extract_assignee_note`: по @упоминаниям и фразам ("назначь/ответственный/Иван" и т.п.).
+- `extract_assignee_note`: сохранить в draft текстовую заметку о предполагаемом исполнителе.
 - `summarize → description`: 3–5 ключевых предложений из контекста.
 - Сохраняет результат в `draft_tasks`.
+
+#### Assignee Mapping & Resolver
+- Для каждого `chat + Todoist project` можно загрузить YAML-маппинг `Telegram alias -> Todoist user`.
+- При импорте бот проверяет, что `todoist_email` существует среди `GET /projects/{project_id}/collaborators`.
+- При создании или редактировании черновика бот формирует список допустимых кандидатов из маппинга и передаёт его в AI.
+- Итоговое решение по исполнителю принимает AI среди этих кандидатов; прямое `@упоминание` само по себе не назначает assignee автоматически.
+- В draft сохраняются `assignee_todoist_id`, `assignee_name`, `assignee_email`, `assignee_match_source`.
 
 #### Preview & Callbacks
 - `/create_task` строит черновик из сообщений активной сессии.
@@ -69,10 +76,10 @@
 - Создание задачи в проекте, указанном в `chat_settings`.
 - **Маппинг**:
   - `content` ← `draft.title`
-  - `description` ← `draft.description + "\n\nПредлагаемый исполнитель: <assignee_note>"`
+  - `description` ← `draft.description`
   - `priority` ← `draft.priority` (1..4)
   - `due_datetime` ← `draft.due_iso` (UTC ISO, если есть)
-  - `assignee` — **не маппится автоматически** (требуется ручная корректировка в Todoist)
+  - `assignee_id` ← `draft.assignee_todoist_id` (если AI выбрал допустимого кандидата)
 - По подтверждению пишет запись в `created_tasks` (task_id, url) и закрывает сессию.
 
 #### AI Client (редактирование)
@@ -98,7 +105,7 @@
 - `TZ=Europe/Moscow` — часовой пояс по умолчанию
 - `AI_PROVIDER` — провайдер AI (yandex или openrouter)
 - `YANDEX_FOLDER_ID` — ID каталога Yandex Cloud (для YandexGPT)
-- `OPENROUTER_MODEL` — модель OpenRouter (по умолчанию: openai/gpt-4o-mini)
+- `OPENROUTER_MODEL` — модель OpenRouter (по умолчанию: qwen/qwen3.5-35b-a3b)
 
 ### Данные/схема БД (PostgreSQL)
 
@@ -107,8 +114,9 @@ chats(id, created_at)
 chat_settings(chat_id PK, todoist_project_id, updated_at)
 sessions(id PK, chat_id, owner_id, status, started_at, closed_at)  -- owner_id добавлен для контроля доступа
 messages(id PK, chat_id, session_id, message_id, user_id, username, text, ts)
-draft_tasks(session_id PK, title, description, due_iso, priority, assignee_note, updated_at)
-created_tasks(id PK, session_id, todoist_task_id, url, created_at)
+draft_tasks(session_id PK, title, description, due_iso, priority, assignee_note, assignee_todoist_id, assignee_name, assignee_email, assignee_match_source, updated_at)
+created_tasks(id PK, session_id, todoist_task_id, url, assignee_todoist_id, assignee_name, assignee_email, assignee_match_source, created_at)
+assignee_mappings(chat_id, todoist_project_id, alias_normalized, todoist_user_id, ...)
 audit_edits(id PK, session_id, instruction_text, diff_json, created_at)
 ```
 
@@ -154,7 +162,7 @@ audit_edits(id PK, session_id, instruction_text, diff_json, created_at)
 - **AI API таймауты**: AI может отвечать долго; long polling Telegram имеет таймаут 60 секунд.
 
 ### Риски UX
-- **Не назначаем assignee в Todoist** — может потребоваться ручная корректировка.
+- **AI может выбрать не того исполнителя среди допустимых кандидатов** — компенсируем preview и кнопкой "Редактировать".
 - **Возможная неверная интерпретация даты/приоритета** — компенсируем предпросмотром и режимом "Редактировать".
 - **Стоимость AI-запросов** — каждый `/create_task` и редактирование стоят денег.
 
@@ -172,7 +180,6 @@ audit_edits(id PK, session_id, instruction_text, diff_json, created_at)
 
 ### Не реализовано / Отложено
 - ⏳ Webhook вместо long polling
-- ⏳ Автоматический маппинг assignee в Todoist (требует интеграции с пользователями Todoist)
 - ⏳ Полная валидация и обработка ошибок AI API
 - ⏳ Мониторинг и метрики (Prometheus, Grafana)
 
@@ -203,6 +210,7 @@ audit_edits(id PK, session_id, instruction_text, diff_json, created_at)
 - `sessions` (с `owner_id` для контроля доступа)
 - `messages`
 - `draft_tasks`, `created_tasks`
+- `assignee_mappings`
 - `audit_edits`
 
 Индексы по ключевым полям (`chat_id`, `session_id`, `ts`).

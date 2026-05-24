@@ -36,7 +36,11 @@ func TestCallbackHandler_HandleCallback_ParsesSessionIDCorrectly(t *testing.T) {
 		SelectedLinks: tasklinks.TaskLinkSlice{
 			{URL: "https://logs.example.com/incident-1", Role: "logs", Reason: "логи ошибки"},
 		},
-		AssigneeNote: sql.NullString{String: "@ivan", Valid: true},
+		AssigneeNote:        sql.NullString{String: "@ivan", Valid: true},
+		AssigneeTodoistID:   sql.NullString{String: "user-123", Valid: true},
+		AssigneeName:        sql.NullString{String: "Ivan Petrov", Valid: true},
+		AssigneeEmail:       sql.NullString{String: "ivan@example.com", Valid: true},
+		AssigneeMatchSource: sql.NullString{String: "author_alias", Valid: true},
 		Fields: taskfields.TaskFields{
 			WhatIsBroken:         "Не открывается форма.",
 			VerificationCriteria: "Форма открывается без ошибки.",
@@ -51,6 +55,7 @@ func TestCallbackHandler_HandleCallback_ParsesSessionIDCorrectly(t *testing.T) {
 			task.ProjectID == "project123" &&
 			task.Priority == 3 &&
 			task.DueDate == "2026-04-01" &&
+			task.AssigneeID == "user-123" &&
 			len(task.Labels) == 2 &&
 			task.Labels[0] == "backend" &&
 			task.Labels[1] == "urgent"
@@ -64,7 +69,8 @@ func TestCallbackHandler_HandleCallback_ParsesSessionIDCorrectly(t *testing.T) {
 			task.TaskType.String == "bug" &&
 			len(task.Labels) == 2 &&
 			len(task.SelectedLinks) == 1 &&
-			task.AssigneeNote.String == "@ivan"
+			task.AssigneeNote.String == "@ivan" &&
+			task.AssigneeTodoistID.String == "user-123"
 	}), "todoist123", mock.Anything).Return(nil)
 	mockDB.On("CloseSession", mock.Anything, chatID).Return(nil)
 

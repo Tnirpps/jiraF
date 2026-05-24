@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/user/telegram-bot/internal/db"
-	"github.com/user/telegram-bot/internal/taskfields"
 	"github.com/user/telegram-bot/internal/tasklinks"
 )
 
@@ -25,9 +24,11 @@ type DBManager interface {
 	GetSessionMessages(ctx context.Context, sessionID int) ([]db.Message, error)
 
 	// Methods for draft and created tasks
-	SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, taskType string, labels, missingDetails []string, selectedLinks []tasklinks.TaskLink, assigneeNote string, fields taskfields.TaskFields) error
+	SaveDraftTask(ctx context.Context, input db.DraftTaskInput) error
 	GetDraftTask(ctx context.Context, sessionID int) (db.DraftTask, error)
 	DeleteDraftTask(ctx context.Context, sessionID int) error
 
 	SaveCreatedTask(ctx context.Context, task db.DraftTask, todoistTaskID, url string) error
+	ReplaceAssigneeMappings(ctx context.Context, chatID int64, projectID string, mappings []db.AssigneeMapping) error
+	GetAssigneeMappings(ctx context.Context, chatID int64, projectID string) ([]db.AssigneeMapping, error)
 }

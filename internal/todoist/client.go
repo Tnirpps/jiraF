@@ -69,6 +69,17 @@ type TaskResponse struct {
 	AssignerID   string            `json:"assigner_id,omitempty"`
 }
 
+type Collaborator struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+type CollaboratorsResponse struct {
+	Results    []Collaborator `json:"results"`
+	NextCursor *string        `json:"next_cursor"`
+}
+
 // Project represents a Todoist project
 type Project struct {
 	ID             string `json:"id"`
@@ -103,6 +114,8 @@ type Client interface {
 	CreateTask(ctx context.Context, task *TaskRequest) (*TaskResponse, error)
 	// GetProjects returns the list of projects
 	GetProjects(ctx context.Context) ([]Project, error)
+	// GetProjectCollaborators returns the collaborators for a project
+	GetProjectCollaborators(ctx context.Context, projectID string) ([]Collaborator, error)
 	// GetTasks returns active tasks, optionally filtered by project ID
 	GetTasks(ctx context.Context, projectID string) ([]*TaskResponse, error)
 	// GetTask returns a single task by ID
@@ -242,6 +255,19 @@ func (c *TodoistClient) GetProjects(ctx context.Context) ([]Project, error) {
 	err := c.httpClient.Get(ctx, "projects", &resp)
 	if err != nil {
 		return nil, fmt.Errorf("error getting projects: %w", err)
+	}
+
+	return resp.Results, nil
+}
+
+func (c *TodoistClient) GetProjectCollaborators(ctx context.Context, projectID string) ([]Collaborator, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("project id is required")
+	}
+
+	var resp CollaboratorsResponse
+	if err := c.httpClient.Get(ctx, fmt.Sprintf("projects/%s/collaborators", projectID), &resp); err != nil {
+		return nil, fmt.Errorf("error getting project collaborators: %w", err)
 	}
 
 	return resp.Results, nil

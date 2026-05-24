@@ -179,6 +179,9 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 		DueDate:     task.DueISO.String,
 		Labels:      []string(task.Labels),
 	}
+	if task.AssigneeTodoistID.Valid {
+		todoistRequest.AssigneeID = task.AssigneeTodoistID.String
+	}
 
 	resp, err := h.todoistClient.CreateTask(ctx, todoistRequest)
 	if err != nil {

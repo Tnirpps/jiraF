@@ -45,6 +45,14 @@ func (m *MockAIClient) EditTask(ctx context.Context, task *ai.AnalyzedTask, user
 	return args.Get(0).(*ai.AnalyzedTask), args.Error(1)
 }
 
+func (m *MockAIClient) AnalyzeAssignee(ctx context.Context, messages []string, assigneeNote string, candidates []ai.AssigneeCandidate) (*ai.AssigneeSelection, error) {
+	args := m.Called(ctx, messages, assigneeNote, candidates)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ai.AssigneeSelection), args.Error(1)
+}
+
 // Tests the CreateTaskCommand execution when there is an active discussion session
 // Verifies that a task preview is created with correct buttons and formatting
 func TestCreateTaskCommand_Execute(t *testing.T) {
@@ -93,6 +101,7 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 
 		// Mock project ID
 		mockDB.On("GetTodoistProjectID", mock.Anything, int64(123)).Return("project123", nil)
+		mockDB.On("GetAssigneeMappings", mock.Anything, int64(123), "project123").Return([]db.AssigneeMapping(nil), nil)
 
 		// Mock AI analysis - with formatted messages (as in real code)
 		analyzedTask := &ai.AnalyzedTask{
@@ -126,17 +135,18 @@ func TestCreateTaskCommand_Execute(t *testing.T) {
 		mockDB.On(
 			"SaveDraftTask",
 			mock.Anything,
-			42,
-			"Implement NLP feature",
-			"Task details from discussion",
-			mock.Anything,
-			3,
-			"epic",
-			[]string{"backend", "ai"},
-			[]string{"срок", "риски"},
-			selectedLinks,
-			"@max",
-			taskfields.TaskFields{BriefSolution: "Реализовать NLP-фичу."},
+			mock.MatchedBy(func(input db.DraftTaskInput) bool {
+				return input.SessionID == 42 &&
+					input.Title == "Implement NLP feature" &&
+					input.Description == "Task details from discussion" &&
+					input.Priority == 3 &&
+					input.TaskType == "epic" &&
+					assert.ObjectsAreEqual(input.Labels, []string{"backend", "ai"}) &&
+					assert.ObjectsAreEqual(input.MissingDetails, []string{"срок", "риски"}) &&
+					assert.ObjectsAreEqual(input.SelectedLinks, selectedLinks) &&
+					input.AssigneeNote == "@max" &&
+					input.Fields.BriefSolution == "Реализовать NLP-фичу."
+			}),
 		).Return(nil)
 
 		// Create a mock message
@@ -369,7 +379,7 @@ func TestFormatTaskPreviewSkipsEmptyFields(t *testing.T) {
 		Labels:       []string{"", "  "},
 	}
 
-	result := FormatTaskPreview(task, "", "", "")
+	result := FormatTaskPreview(task, "", "", db.AssigneeSnapshot{}, "")
 
 	assert.NotContains(t, result, "*Срок выполнения:*")
 	assert.NotContains(t, result, "*Исполнитель:*")

@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/user/telegram-bot/internal/ai"
 	"github.com/user/telegram-bot/internal/db"
-	"github.com/user/telegram-bot/internal/taskfields"
 	"github.com/user/telegram-bot/internal/tasklinks"
+	"github.com/user/telegram-bot/internal/todoist"
 )
 
 // CreateCommandMessage is a helper function to create a Telegram message with a command
@@ -103,8 +103,8 @@ func (m *MockDBManager) GetSessionMessages(ctx context.Context, sessionID int) (
 	return args.Get(0).([]db.Message), args.Error(1)
 }
 
-func (m *MockDBManager) SaveDraftTask(ctx context.Context, sessionID int, title, description, dueISO string, priority int, taskType string, labels, missingDetails []string, selectedLinks []tasklinks.TaskLink, assigneeNote string, fields taskfields.TaskFields) error {
-	args := m.Called(ctx, sessionID, title, description, dueISO, priority, taskType, labels, missingDetails, selectedLinks, assigneeNote, fields)
+func (m *MockDBManager) SaveDraftTask(ctx context.Context, input db.DraftTaskInput) error {
+	args := m.Called(ctx, input)
 	return args.Error(0)
 }
 
@@ -126,6 +126,19 @@ func (m *MockDBManager) DeleteDraftTask(ctx context.Context, sessionID int) erro
 func (m *MockDBManager) SaveCreatedTask(ctx context.Context, task db.DraftTask, todoistTaskID, url string) error {
 	args := m.Called(ctx, task, todoistTaskID, url)
 	return args.Error(0)
+}
+
+func (m *MockDBManager) ReplaceAssigneeMappings(ctx context.Context, chatID int64, projectID string, mappings []db.AssigneeMapping) error {
+	args := m.Called(ctx, chatID, projectID, mappings)
+	return args.Error(0)
+}
+
+func (m *MockDBManager) GetAssigneeMappings(ctx context.Context, chatID int64, projectID string) ([]db.AssigneeMapping, error) {
+	args := m.Called(ctx, chatID, projectID)
+	if v := args.Get(0); v != nil {
+		return v.([]db.AssigneeMapping), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 // Helper functions for fluent API style mock configuration
@@ -209,12 +222,82 @@ func (m *AIClientMock) EditTask(ctx context.Context, task *ai.AnalyzedTask, user
 	return nil, args.Error(1)
 }
 
+func (m *AIClientMock) AnalyzeAssignee(ctx context.Context, messages []string, assigneeNote string, candidates []ai.AssigneeCandidate) (*ai.AssigneeSelection, error) {
+	args := m.Called(ctx, messages, assigneeNote, candidates)
+	if v := args.Get(0); v != nil {
+		return v.(*ai.AssigneeSelection), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 type AIClientMockMockHelper struct {
 	m *AIClientMock
 }
 
 func ConfigureClientMock(m *AIClientMock) *AIClientMockMockHelper {
 	return &AIClientMockMockHelper{m: m}
+}
+
+type MockTodoistClient struct {
+	mock.Mock
+}
+
+func (m *MockTodoistClient) CreateTask(ctx context.Context, task *todoist.TaskRequest) (*todoist.TaskResponse, error) {
+	args := m.Called(ctx, task)
+	if v := args.Get(0); v != nil {
+		return v.(*todoist.TaskResponse), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockTodoistClient) GetProjects(ctx context.Context) ([]todoist.Project, error) {
+	args := m.Called(ctx)
+	if v := args.Get(0); v != nil {
+		return v.([]todoist.Project), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockTodoistClient) GetProjectCollaborators(ctx context.Context, projectID string) ([]todoist.Collaborator, error) {
+	args := m.Called(ctx, projectID)
+	if v := args.Get(0); v != nil {
+		return v.([]todoist.Collaborator), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockTodoistClient) GetTasks(ctx context.Context, projectID string) ([]*todoist.TaskResponse, error) {
+	args := m.Called(ctx, projectID)
+	if v := args.Get(0); v != nil {
+		return v.([]*todoist.TaskResponse), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockTodoistClient) GetTask(ctx context.Context, taskID string) (*todoist.TaskResponse, error) {
+	args := m.Called(ctx, taskID)
+	if v := args.Get(0); v != nil {
+		return v.(*todoist.TaskResponse), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockTodoistClient) UpdateTask(ctx context.Context, taskID string, task *todoist.TaskRequest) (*todoist.TaskResponse, error) {
+	args := m.Called(ctx, taskID, task)
+	if v := args.Get(0); v != nil {
+		return v.(*todoist.TaskResponse), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockTodoistClient) CompleteTask(ctx context.Context, taskID string) error {
+	args := m.Called(ctx, taskID)
+	return args.Error(0)
+}
+
+func (m *MockTodoistClient) DeleteTask(ctx context.Context, taskID string) error {
+	args := m.Called(ctx, taskID)
+	return args.Error(0)
 }
 
 func (h *AIClientMockMockHelper) AnalyzeDiscussionExact(msgs []string, res *ai.AnalyzedTask, err error) *AIClientMockMockHelper {

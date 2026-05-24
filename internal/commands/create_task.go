@@ -10,6 +10,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/user/telegram-bot/internal/ai"
+	"github.com/user/telegram-bot/internal/assignee"
 	"github.com/user/telegram-bot/internal/db"
 	"github.com/user/telegram-bot/internal/taskfields"
 	"github.com/user/telegram-bot/internal/tasklinks"
@@ -54,6 +55,7 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error getting project: %v", err))
 		return &msg
 	}
+	projectID, _ := c.dbManager.GetTodoistProjectID(ctx, message.Chat.ID)
 
 	// Check if there's an active session
 	hasActive, err := c.dbManager.HasActiveSession(ctx, message.Chat.ID)
@@ -143,24 +145,48 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 		assigneeNote = c.extractAssignee(strings.Join(messageTexts, " "))
 	}
 
+	resolvedAssignee := db.AssigneeSnapshot{}
+	mappings, err := c.dbManager.GetAssigneeMappings(ctx, message.Chat.ID, projectID)
+	if err != nil {
+		log.Printf("Failed to load assignee mappings: %v", err)
+	}
+	if len(mappings) > 0 {
+		collaborators, collaboratorsErr := c.todoistClient.GetProjectCollaborators(ctx, projectID)
+		if collaboratorsErr != nil {
+			log.Printf("Failed to load project collaborators: %v", collaboratorsErr)
+		} else {
+			resolved, resolveErr := assignee.Resolve(ctx, c.aiClient, messages, messageTexts, assigneeNote, mappings, collaborators, false)
+			if resolveErr != nil {
+				log.Printf("Failed to resolve assignee: %v", resolveErr)
+			} else {
+				resolvedAssignee = db.AssigneeSnapshot{
+					TodoistID:   resolved.TodoistID,
+					Name:        resolved.Name,
+					Email:       resolved.Email,
+					MatchSource: resolved.MatchSource,
+				}
+			}
+		}
+	}
+
 	// Format due date in ISO
 	dueISO := c.convertToDueISO(analyzedTask.DueDate)
 
 	// Save draft task to database
-	err = c.dbManager.SaveDraftTask(
-		ctx,
-		session.ID,
-		analyzedTask.Title,
-		analyzedTask.Description,
-		dueISO,
-		analyzedTask.Priority,
-		analyzedTask.TaskType,
-		analyzedTask.Labels,
-		analyzedTask.MissingDetails,
-		analyzedTask.SelectedLinks,
-		assigneeNote,
-		analyzedTask.TaskFields,
-	)
+	err = c.dbManager.SaveDraftTask(ctx, db.DraftTaskInput{
+		SessionID:      session.ID,
+		Title:          analyzedTask.Title,
+		Description:    analyzedTask.Description,
+		DueISO:         dueISO,
+		Priority:       analyzedTask.Priority,
+		TaskType:       analyzedTask.TaskType,
+		Labels:         analyzedTask.Labels,
+		MissingDetails: analyzedTask.MissingDetails,
+		SelectedLinks:  analyzedTask.SelectedLinks,
+		AssigneeNote:   assigneeNote,
+		Assignee:       resolvedAssignee,
+		Fields:         analyzedTask.TaskFields,
+	})
 	if err != nil {
 		log.Printf("Failed to save draft task: %v", err)
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error saving draft: %v", err))
@@ -168,7 +194,7 @@ func (c *CreateTaskCommand) Execute(message *tgbotapi.Message) *tgbotapi.Message
 	}
 
 	// Create preview message
-	return c.createPreviewMessage(message.Chat.ID, session.ID, analyzedTask, dueISO, assigneeNote)
+	return c.createPreviewMessage(message.Chat.ID, session.ID, analyzedTask, dueISO, assigneeNote, resolvedAssignee)
 }
 
 func buildLinkCandidates(messages []db.Message) []tasklinks.LinkCandidate {
@@ -220,9 +246,9 @@ func CreateInlineKeyboard(sessionID int) tgbotapi.InlineKeyboardMarkup {
 }
 
 // createPreviewMessage creates a task preview with buttons
-func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, task *ai.AnalyzedTask, dueISO, assigneeNote string) *tgbotapi.MessageConfig {
+func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, task *ai.AnalyzedTask, dueISO, assigneeNote string, resolvedAssignee db.AssigneeSnapshot) *tgbotapi.MessageConfig {
 	responseText := "✅ Черновик задачи готов.\n\n"
-	responseText += FormatTaskPreview(task, dueISO, assigneeNote, "Если хочешь, нажми `Редактировать` и дополни это в задаче.")
+	responseText += FormatTaskPreview(task, dueISO, assigneeNote, resolvedAssignee, "Если хочешь, нажми `Редактировать` и дополни это в задаче.")
 	responseText += "\n\nПроверь описание и выбери действие:"
 
 	// Create message with inline buttons
@@ -236,7 +262,7 @@ func (c *CreateTaskCommand) createPreviewMessage(chatID int64, sessionID int, ta
 	return &msg
 }
 
-func FormatTaskPreview(task *ai.AnalyzedTask, dueISO, assigneeNote, missingDetailsHint string) string {
+func FormatTaskPreview(task *ai.AnalyzedTask, dueISO, assigneeNote string, resolvedAssignee db.AssigneeSnapshot, missingDetailsHint string) string {
 	if task == nil {
 		return ""
 	}
@@ -260,8 +286,8 @@ func FormatTaskPreview(task *ai.AnalyzedTask, dueISO, assigneeNote, missingDetai
 		b.WriteString(fmt.Sprintf("*Приоритет:* %s\n", task.PriorityText))
 	}
 	b.WriteString(fmt.Sprintf("*Тип задачи:* %s\n", formatTaskType(task.TaskType)))
-	if assigneeNote != "" {
-		b.WriteString(fmt.Sprintf("*Исполнитель:* %s\n", assigneeNote))
+	if assigneeDisplay := FormatAssigneeForPreview(assigneeNote, resolvedAssignee); assigneeDisplay != "" {
+		b.WriteString(fmt.Sprintf("*Исполнитель:* %s\n", assigneeDisplay))
 	}
 	labels := cleanLabels(task.Labels)
 	if len(labels) > 0 {
@@ -283,6 +309,16 @@ func FormatTaskPreview(task *ai.AnalyzedTask, dueISO, assigneeNote, missingDetai
 	}
 
 	return strings.TrimSpace(b.String())
+}
+
+func FormatAssigneeForPreview(assigneeNote string, resolvedAssignee db.AssigneeSnapshot) string {
+	if resolvedAssignee.Name != "" && resolvedAssignee.Email != "" {
+		return fmt.Sprintf("%s (%s)", resolvedAssignee.Name, resolvedAssignee.Email)
+	}
+	if resolvedAssignee.Name != "" {
+		return resolvedAssignee.Name
+	}
+	return strings.TrimSpace(assigneeNote)
 }
 
 func FormatTaskFieldsPreview(fields taskfields.TaskFields) string {

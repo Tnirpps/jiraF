@@ -16,6 +16,10 @@ type Command interface {
 	Execute(message *tgbotapi.Message) *tgbotapi.MessageConfig
 }
 
+type WaitingReplyCommand interface {
+	WaitingReply(message *tgbotapi.Message) (replyKind string, replyValue string, ok bool)
+}
+
 // Registry holds all available commands
 type Registry struct {
 	commands map[string]Command

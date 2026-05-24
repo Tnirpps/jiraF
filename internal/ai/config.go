@@ -8,12 +8,13 @@ import (
 )
 
 type AiSettings struct {
-	Model              string `yaml:"model"`
-	ModelURLTemplate   string `yaml:"model_url_template"`
-	CreateTaskPrompt   string `yaml:"create_task_prompt"`
-	EditTaskPrompt     string `yaml:"edit_task_prompt"`
-	AnalyzeLinksPrompt string `yaml:"analyze_links_prompt"`
-	TaskTemplatesDir   string `yaml:"task_templates_dir"`
+	Model                 string `yaml:"model"`
+	ModelURLTemplate      string `yaml:"model_url_template"`
+	CreateTaskPrompt      string `yaml:"create_task_prompt"`
+	EditTaskPrompt        string `yaml:"edit_task_prompt"`
+	AnalyzeLinksPrompt    string `yaml:"analyze_links_prompt"`
+	AnalyzeAssigneePrompt string `yaml:"analyze_assignee_prompt"`
+	TaskTemplatesDir      string `yaml:"task_templates_dir"`
 }
 
 type AiSettingsRoot struct {
