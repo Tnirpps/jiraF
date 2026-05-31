@@ -207,7 +207,7 @@ func (h *CallbackHandler) handleConfirmCallback(callback *tgbotapi.CallbackQuery
 	taskURL := fmt.Sprintf("https://app.todoist.com/app/task/%s", resp.ID)
 
 	callbackCfg := tgbotapi.NewCallback(callback.ID, "✅ Отлично! Создаю задачу.")
-	messageText := fmt.Sprintf("✅ **Задача создана**: [%s](%s)", task.Title.String, taskURL)
+	messageText := fmt.Sprintf("✅ *Задача создана*: [%s](%s)", escapeTelegramMarkdown(task.Title.String), taskURL)
 	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, messageText)
 	msg.ParseMode = "Markdown"
 	msg.DisableWebPagePreview = true

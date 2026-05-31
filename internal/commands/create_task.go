@@ -267,11 +267,11 @@ func FormatTaskPreview(task *ai.AnalyzedTask, dueISO, assigneeNote string, resol
 		return ""
 	}
 
-	dueDisplay := FormatDueDateForDisplay(dueISO)
+	dueDisplay := escapeTelegramMarkdown(FormatDueDateForDisplay(dueISO))
 	description := FormatDescriptionForTelegram(task.Description)
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("*Название:* %s\n", task.Title))
+	b.WriteString(fmt.Sprintf("*Название:* %s\n", escapeTelegramMarkdown(task.Title)))
 	if description != "" {
 		b.WriteString(fmt.Sprintf("*Описание:*\n%s\n", description))
 	}
@@ -283,15 +283,15 @@ func FormatTaskPreview(task *ai.AnalyzedTask, dueISO, assigneeNote string, resol
 		b.WriteString(fmt.Sprintf("*Срок выполнения:* %s\n", dueDisplay))
 	}
 	if task.PriorityText != "" {
-		b.WriteString(fmt.Sprintf("*Приоритет:* %s\n", task.PriorityText))
+		b.WriteString(fmt.Sprintf("*Приоритет:* %s\n", escapeTelegramMarkdown(task.PriorityText)))
 	}
-	b.WriteString(fmt.Sprintf("*Тип задачи:* %s\n", formatTaskType(task.TaskType)))
+	b.WriteString(fmt.Sprintf("*Тип задачи:* %s\n", escapeTelegramMarkdown(formatTaskType(task.TaskType))))
 	if assigneeDisplay := FormatAssigneeForPreview(assigneeNote, resolvedAssignee); assigneeDisplay != "" {
-		b.WriteString(fmt.Sprintf("*Исполнитель:* %s\n", assigneeDisplay))
+		b.WriteString(fmt.Sprintf("*Исполнитель:* %s\n", escapeTelegramMarkdown(assigneeDisplay)))
 	}
 	labels := cleanLabels(task.Labels)
 	if len(labels) > 0 {
-		b.WriteString(fmt.Sprintf("*Метки:* %s\n", strings.Join(labels, ", ")))
+		b.WriteString(fmt.Sprintf("*Метки:* %s\n", escapeTelegramMarkdown(strings.Join(labels, ", "))))
 	}
 	if len(task.SelectedLinks) > 0 {
 		b.WriteString("\n")
@@ -328,7 +328,7 @@ func FormatTaskFieldsPreview(fields taskfields.TaskFields) string {
 		if value == "" {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("*%s:* %s\n", field.Label, value))
+		b.WriteString(fmt.Sprintf("*%s:* %s\n", escapeTelegramMarkdown(field.Label), escapeTelegramMarkdown(value)))
 	}
 	return strings.TrimSpace(b.String())
 }
@@ -340,18 +340,18 @@ func FormatDescriptionForTelegram(description string) string {
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "### ") {
-			formatted = append(formatted, "*"+strings.TrimSpace(strings.TrimPrefix(trimmed, "### "))+"*")
+			formatted = append(formatted, "*"+escapeTelegramMarkdown(strings.TrimSpace(strings.TrimPrefix(trimmed, "### ")))+"*")
 			continue
 		}
 		if strings.HasPrefix(trimmed, "## ") {
-			formatted = append(formatted, "*"+strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))+"*")
+			formatted = append(formatted, "*"+escapeTelegramMarkdown(strings.TrimSpace(strings.TrimPrefix(trimmed, "## ")))+"*")
 			continue
 		}
 		if strings.HasPrefix(trimmed, "# ") {
-			formatted = append(formatted, "*"+strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))+"*")
+			formatted = append(formatted, "*"+escapeTelegramMarkdown(strings.TrimSpace(strings.TrimPrefix(trimmed, "# ")))+"*")
 			continue
 		}
-		formatted = append(formatted, line)
+		formatted = append(formatted, escapeTelegramMarkdown(line))
 	}
 
 	return strings.TrimSpace(strings.Join(formatted, "\n"))
@@ -405,7 +405,7 @@ func FormatMissingDetailsPrompt(details []string) string {
 		return ""
 	}
 
-	return fmt.Sprintf("*Можно ещё уточнить:* похоже, перед созданием задачи стоит обсудить %s.", formattedDetails)
+	return fmt.Sprintf("*Можно ещё уточнить:* похоже, перед созданием задачи стоит обсудить %s.", escapeTelegramMarkdown(formattedDetails))
 }
 
 func FormatSelectedLinksPreview(links []tasklinks.TaskLink) string {
@@ -416,10 +416,25 @@ func FormatSelectedLinksPreview(links []tasklinks.TaskLink) string {
 	var b strings.Builder
 	b.WriteString("*Полезные материалы:*\n")
 	for _, link := range tasklinks.NormalizeLinks(links) {
-		b.WriteString(fmt.Sprintf("• %s: %s — %s\n", link.Role, link.URL, link.Reason))
+		b.WriteString(fmt.Sprintf(
+			"• %s: %s — %s\n",
+			escapeTelegramMarkdown(link.Role),
+			escapeTelegramMarkdown(link.URL),
+			escapeTelegramMarkdown(link.Reason),
+		))
 	}
 
 	return strings.TrimSpace(b.String())
+}
+
+func escapeTelegramMarkdown(text string) string {
+	replacer := strings.NewReplacer(
+		`_`, `\_`,
+		`*`, `\*`,
+		"`", "\\`",
+		`[`, `\[`,
+	)
+	return replacer.Replace(text)
 }
 
 func AppendSelectedLinksToDescription(description string, links []tasklinks.TaskLink) string {
