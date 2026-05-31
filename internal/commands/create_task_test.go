@@ -386,3 +386,22 @@ func TestFormatTaskPreviewSkipsEmptyFields(t *testing.T) {
 	assert.NotContains(t, result, "*Метки:*")
 	assert.Contains(t, result, "*Тип задачи:* Баг")
 }
+
+func TestFormatTaskPreviewEscapesTelegramMarkdown(t *testing.T) {
+	task := &ai.AnalyzedTask{
+		Title:        "Починить preview_parser",
+		Description:  "Email alex_zanozin@example.com ломал markdown",
+		PriorityText: "Средний",
+		TaskType:     "task",
+		Labels:       []string{"meeting_event"},
+	}
+
+	result := FormatTaskPreview(task, "", "", db.AssigneeSnapshot{
+		Name:  "Александр",
+		Email: "alex_zanozin@example.com",
+	}, "")
+
+	assert.Contains(t, result, "preview\\_parser")
+	assert.Contains(t, result, "alex\\_zanozin@example.com")
+	assert.Contains(t, result, "meeting\\_event")
+}
